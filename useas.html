@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Use As - PC Server Download</title>
+    <style>
+        :root {
+            --primary: #00E676;       /* Android Green */
+            --primary-dark: #00C853;
+            --bg: #121212;            /* Dark Mode Background */
+            --surface: #1E1E1E;       /* Card Background */
+            --text: #FFFFFF;
+            --text-secondary: #B0BEC5;
+            --accent: #2979FF;        /* Blue Accent */
+            --warning: #FFAB00;
+        }
+
+        * { margin: 0; padding: 0; box_sizing: border-box; }
+
+        body {
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            background-color: var(--bg);
+            color: var(--text);
+            line-height: 1.6;
+        }
+
+        /* --- Header --- */
+        header {
+            text-align: center;
+            padding: 80px 20px;
+            background: radial-gradient(circle at top, #1e2824 0%, var(--bg) 70%);
+        }
+
+        h1 {
+            font-size: 3.5rem;
+            margin-bottom: 15px;
+            letter-spacing: -1px;
+        }
+
+        .subtitle {
+            font-size: 1.25rem;
+            color: var(--text-secondary);
+            max-width: 600px;
+            margin: 0 auto 40px;
+        }
+
+        /* --- Buttons --- */
+        .btn {
+            display: inline-block;
+            padding: 15px 40px;
+            border-radius: 50px;
+            text-decoration: none;
+            font-weight: 700;
+            font-size: 1.1rem;
+            transition: all 0.2s ease;
+            margin: 5px;
+        }
+
+        .btn-primary {
+            background-color: var(--primary);
+            color: #000;
+            box-shadow: 0 4px 15px rgba(0, 230, 118, 0.3);
+        }
+
+        .btn-primary:hover {
+            background-color: var(--primary-dark);
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(0, 230, 118, 0.4);
+        }
+
+        .btn-secondary {
+            background-color: var(--surface);
+            color: var(--text);
+            border: 1px solid #333;
+        }
+
+        .btn-secondary:hover {
+            border-color: var(--text);
+        }
+
+        /* --- Container --- */
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+            padding: 40px 20px;
+        }
+
+        section { margin-bottom: 60px; }
+
+        h2 {
+            font-size: 2rem;
+            margin-bottom: 30px;
+            border-left: 5px solid var(--primary);
+            padding-left: 20px;
+        }
+
+        /* --- Steps Grid --- */
+        .steps {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 25px;
+        }
+
+        .step-card {
+            background: var(--surface);
+            padding: 30px;
+            border-radius: 16px;
+            position: relative;
+            border: 1px solid #333;
+        }
+
+        .step-num {
+            position: absolute;
+            top: -15px;
+            left: 20px;
+            background: var(--accent);
+            color: white;
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+        }
+
+        h3 { margin-bottom: 15px; color: var(--primary); }
+        
+        .note {
+            font-size: 0.9rem;
+            color: var(--text-secondary);
+            background: rgba(255, 255, 255, 0.05);
+            padding: 10px;
+            border-radius: 8px;
+            margin-top: 15px;
+        }
+
+        /* --- Downloads Grid --- */
+        .downloads-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+        }
+
+        .download-card {
+            background: var(--surface);
+            padding: 20px;
+            text-align: center;
+            border-radius: 12px;
+            border: 1px solid #333;
+            transition: 0.2s;
+        }
+
+        .download-card:hover {
+            border-color: var(--primary);
+        }
+
+        .icon { font-size: 2.5rem; display: block; margin-bottom: 10px; }
+
+        /* --- FAQ / Troubleshooting --- */
+        details {
+            background: var(--surface);
+            margin-bottom: 10px;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+
+        summary {
+            padding: 15px 20px;
+            cursor: pointer;
+            font-weight: bold;
+            user-select: none;
+            transition: background 0.2s;
+        }
+
+        summary:hover { background: #2a2a2a; }
+
+        .faq-content {
+            padding: 0 20px 20px;
+            color: var(--text-secondary);
+            border-top: 1px solid #333;
+        }
+
+        /* --- Footer --- */
+        footer {
+            text-align: center;
+            padding: 40px;
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+            border-top: 1px solid #222;
+        }
+    </style>
+</head>
+<body>
+
+    <header>
+        <h1>Use As PC Server</h1>
+        <p class="subtitle">Turn your phone into a high-performance Webcam, Mic, Mouse, and Second Display.</p>
+        <div>
+            <a href="UseAs_Setup_v1.0.exe" class="btn btn-primary">Download Installer for Windows</a>
+            <p style="margin-top: 10px; font-size: 0.9rem; color: #666;">v1.0 • Windows 10/11 • 64-bit</p>
+        </div>
+    </header>
+
+    <div class="container">
+
+        <section>
+            <h2>Installation Guide</h2>
+            <div class="steps">
+                <div class="step-card">
+                    <div class="step-num">1</div>
+                    <h3>Run Installer</h3>
+                    <p>Run <code>UseAs_Setup.exe</code>. It will automatically install the main app and required drivers.</p>
+                    <div class="note">
+                        <strong>Note:</strong> You will see pop-ups for <em>ViGEmBus</em> (Gamepad) and <em>VB-Cable</em> (Microphone). Please accept them.
+                    </div>
+                </div>
+                <div class="step-card">
+                    <div class="step-num">2</div>
+                    <h3>Connect Phone</h3>
+                    <p>Ensure your PC and Phone are on the <strong>same WiFi</strong>.</p>
+                    <p>For zero latency, connect via <strong>USB Tethering</strong>.</p>
+                </div>
+                <div class="step-card">
+                    <div class="step-num">3</div>
+                    <h3>Start Server</h3>
+                    <p>Open <strong>Use As Server</strong> from your desktop and click <strong>▶ Start Server</strong>.</p>
+                    <p>Open the app on your phone—it should auto-detect your PC.</p>
+                </div>
+            </div>
+        </section>
+
+        <section>
+            <h2>Feature Requirements</h2>
+            <p style="margin-bottom: 20px;">Some features require one-time external setups to work fully.</p>
+            
+            <div class="downloads-grid">
+                <div class="download-card">
+                    <span class="icon">📹</span>
+                    <h3>Virtual Camera</h3>
+                    <p>Required for Zoom/Discord video.</p>
+                    <br>
+                    <a href="https://obsproject.com/download" target="_blank" class="btn btn-secondary" style="font-size: 0.9rem;">Download OBS Studio</a>
+                    <div class="note" style="margin-top:10px;">Install OBS to enable the Virtual Camera driver.</div>
+                </div>
+
+                <div class="download-card">
+                    <span class="icon">🖥️</span>
+                    <h3>Second Screen</h3>
+                    <p>Required to extend your desktop.</p>
+                    <br>
+                    <a href="https://www.amyuni.com/downloads/usbmmidd_v2.zip" target="_blank" class="btn btn-secondary" style="font-size: 0.9rem;">Get Virtual Display</a>
+                    <div class="note" style="margin-top:10px;">Extract & run <code>deviceinstaller64</code> to create a dummy monitor.</div>
+                </div>
+            </div>
+        </section>
+
+        <section>
+            <h2>Troubleshooting</h2>
+            
+            <details>
+                <summary>⚠️ Phone cannot find PC (Stuck on Scanning)</summary>
+                <div class="faq-content">
+                    <p>This is usually a Windows Firewall issue.</p>
+                    <ol style="margin-left: 20px; margin-top: 10px;">
+                        <li>Press <strong>Windows Key</strong> and type <em>"Allow an app through Windows Firewall"</em>.</li>
+                        <li>Click <strong>Change Settings</strong>.</li>
+                        <li>Find <code>UseAsServer.exe</code> or <code>python</code> in the list.</li>
+                        <li><strong>Check BOTH boxes:</strong> ☑ Private and ☑ Public.</li>
+                        <li>Click OK and restart the server.</li>
+                    </ol>
+                </div>
+            </details>
+
+            <details>
+                <summary>🎤 Microphone hears my voice but PC doesn't</summary>
+                <div class="faq-content">
+                    <p>The app sends audio to your PC's "Cable Input". You need to route it to your chat app.</p>
+                    <p style="margin-top: 10px;"><strong>Fix:</strong> In Zoom/Discord settings, set <strong>Microphone Input</strong> to <strong>"CABLE Output (VB-Audio Virtual Cable)"</strong>.</p>
+                </div>
+            </details>
+
+            <details>
+                <summary>🤖 Voice sounds robotic or high-pitched</summary>
+                <div class="faq-content">
+                    <p>This is a sample rate mismatch.</p>
+                    <p>The app is optimized for <strong>16000 Hz</strong> (Voice Quality) to ensure low latency. The latest server update handles this automatically. Please ensure you are running the latest version of the server.</p>
+                </div>
+            </details>
+
+            <details>
+                <summary>🎮 Gamepad isn't working in games</summary>
+                <div class="faq-content">
+                    <p>Ensure the <strong>ViGEmBus</strong> driver was installed correctly during setup.</p>
+                    <p>If not, download it manually here: <a href="https://github.com/ViGEm/ViGEmBus/releases" target="_blank" style="color:var(--primary);">ViGEmBus Installer</a>.</p>
+                    <p><em>Note: Connect the gamepad in the app BEFORE launching your game.</em></p>
+                </div>
+            </details>
+
+        </section>
+
+    </div>
+
+    <footer>
+        <p>&copy; 2025 Use As. Built for Android & Windows.</p>
+    </footer>
+
+</body>
+</html>
