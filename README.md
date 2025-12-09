@@ -48,6 +48,4 @@ If you prefer to run the raw Python script or are on Linux, follow these steps.
 * **Display:** Download [usbmmidd_v2](https://www.amyuni.com/downloads/usbmmidd_v2.zip) (extract and run `deviceinstaller64 install usbmmidd.inf usbmmidd`).
 
 #### 3. Install Dependencies
-Open your terminal/command prompt and run:
-```bash
-pip install tk websockets pyautogui opencv-python pillow pyaudiowpatch vgamepad mss
+Run requirement.bat file
