@@ -20,6 +20,11 @@
 
 ## 📥 Installation
 
+You have two options to run the server: using the **All-in-One Installer** (Recommended) or running from **Python Source**.
+
+### Option A: All-in-One Installer (Windows)
+This handles everything for you, including driver installation.
+
 1.  Download the latest **`UseAs_Setup.exe`** from the [Releases Page](#).
 2.  Run the installer as Administrator.
 3.  Follow the prompts to install required drivers:
@@ -29,3 +34,20 @@
 
 ---
 
+### Option B: Run from Source (Advanced)
+
+If you prefer to run the raw Python script or are on Linux, follow these steps.
+
+#### 1. Prerequisites
+* **Python 3.10** or newer.
+* **OBS Studio** (For Virtual Camera support).
+
+#### 2. Install Drivers
+* **Gamepad:** Download and install [ViGEmBus](https://github.com/ViGEm/ViGEmBus/releases) (Windows only).
+* **Microphone:** Download and install [VB-CABLE](https://vb-audio.com/Cable/).
+* **Display:** Download [usbmmidd_v2](https://www.amyuni.com/downloads/usbmmidd_v2.zip) (extract and run `deviceinstaller64 install usbmmidd.inf usbmmidd`).
+
+#### 3. Install Dependencies
+Open your terminal/command prompt and run:
+```bash
+pip install tk websockets pyautogui opencv-python pillow pyaudiowpatch vgamepad mss
