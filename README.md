@@ -48,4 +48,7 @@ If you prefer to run the raw Python script or are on Linux, follow these steps.
 * **Display:** Download [usbmmidd_v2](https://www.amyuni.com/downloads/usbmmidd_v2.zip) (extract and run `deviceinstaller64 install usbmmidd.inf usbmmidd`).
 
 #### 3. Install Dependencies
-Run requirement.bat file
+  Run requirement.bat file
+
+#### 4. Run
+  Double Click or Open with command "python unified_remote_gui.py"
