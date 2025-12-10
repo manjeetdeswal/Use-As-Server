@@ -38,7 +38,7 @@ echo  - Gamepad:   vgamepad
 echo -----------------------------------
 echo.
 
-pip install websockets pyautogui mss pillow numpy opencv-python psutil pyvirtualcam pyaudio pyaudiowpatch vgamepad pywin32 requests
+pip install websockets pyautogui pyperclip mss pillow numpy opencv-python psutil pyvirtualcam pyaudio pyaudiowpatch vgamepad pywin32 requests
 
 if %errorlevel% neq 0 (
     color 0E
