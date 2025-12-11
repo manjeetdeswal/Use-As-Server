@@ -1,5 +1,7 @@
+import base64
+import subprocess
 import tkinter as tk
-from tkinter import ttk, scrolledtext, messagebox
+from tkinter import ttk, scrolledtext, messagebox, filedialog
 import threading
 import asyncio
 import json
@@ -16,6 +18,8 @@ import sys
 import socket
 import threading
 import time
+import pyperclip  # For clipboard
+import os         # For file saving
 
 if sys.platform == "win32":
     import win32api
@@ -23,6 +27,29 @@ if sys.platform == "win32":
 # ============================================
 # SERVER CODE (async websockets running in a background thread)
 # ============================================
+
+COLORS = {
+    "bg": "#1e1e1e",
+    "fg": "#ffffff",
+    "accent": "#00e676",      # Android Green
+    "accent_hover": "#00c853",
+    "secondary": "#2d2d2d",
+    "highlight": "#3d3d3d",
+    "error": "#cf6679",
+    "text_dim": "#b0b0b0",
+    "btn_disabled": "#424242"
+}
+
+SAVE_DIR = Path.home() / "Downloads" / "UseAs_Received"
+
+# Create directory immediately
+try:
+    SAVE_DIR.mkdir(parents=True, exist_ok=True)
+    print(f"📂 Saving files to: {SAVE_DIR}")
+except Exception as e:
+    print(f"❌ Error creating folder: {e}")
+
+
 
 
 class DiscoveryServer(threading.Thread):
@@ -79,7 +106,10 @@ class DiscoveryServer(threading.Thread):
 
 class UnifiedRemoteServer:
     def __init__(self, host="0.0.0.0", port=8080, update_queue: queue.Queue = None):
+        import threading
+        self.sending_lock = threading.Lock()
         self.host = host
+        self.ack_event = threading.Event()
         self.port = port
         self.clients = set()
         self._loop = None
@@ -131,6 +161,16 @@ class UnifiedRemoteServer:
             # Fallback to standard 1080p if fails
             self.min_x, self.min_y = 0, 0
             self.max_x, self.max_y = 1920, 1080
+
+    def send_to_android(self, msg_type, payload):
+        """Helper to send JSON messages to Android (Thread-Safe)."""
+        # Ensure the loop exists and is running
+        if self._loop and self._loop.is_running() and self._broadcast_queue:
+            message = json.dumps({"type": msg_type, "payload": payload})
+            # This is the thread-safe way to talk to asyncio from a normal thread
+            asyncio.run_coroutine_threadsafe(self._broadcast_queue.put(message), self._loop)
+        else:
+            print("❌ Error: Event loop is not running, cannot send message.")
 
     async def _broadcast_worker(self):
         """Async worker that sends queued messages to all clients."""
@@ -218,6 +258,29 @@ class UnifiedRemoteServer:
                             self._handle_mouse_move(payload)
                         elif msg_type == "mouse_click":
                             self._handle_mouse_click(payload)
+                        if msg_type == "ack":
+                            self.ack_event.set()
+                        elif msg_type == "clipboard_text":
+                            try:
+                                # Sometimes payload is double-encoded JSON
+                                if isinstance(payload, str) and payload.startswith('{'):
+                                    inner = json.loads(payload)
+                                    text = inner.get("text", "")
+                                else:
+                                    text = str(payload)
+
+                                if text:
+                                    pyperclip.copy(text)
+                                    self._put("clipboard", text)
+                                    self._put("log", "📋 Text copied from phone")
+                            except:
+                                pass
+
+                        elif msg_type == "file_transfer":
+                           # print("DEBUG: Route file transfer")
+                            if isinstance(payload, str):
+                                payload = json.loads(payload)
+                            self._handle_file_transfer(payload)
 
                         elif msg_type == "display_request":
                             self._handle_display_request(payload)
@@ -258,6 +321,128 @@ class UnifiedRemoteServer:
                 self._put("client_count", len(self.clients))
 
         return handler
+
+    def send_file_to_phone_thread(self, file_path):
+        try:
+            original_name = os.path.basename(file_path)
+            # Remove protocol characters from filename
+            filename = original_name.replace(":", "_")
+            file_size = os.path.getsize(file_path)
+
+            self._put("log", f"📤 Starting transfer: {filename}")
+            print(f"--- BINARY TRANSFER: {filename} ---")
+
+            self.sending_lock.acquire()
+
+            # 1. SEND START SIGNAL (As JSON Text)
+            # This tells Android to open the file and get ready.
+            # payload is a JSON string containing filename and size
+            start_payload = json.dumps({"filename": filename, "size": file_size})
+            self.send_to_android("file_start", start_payload)
+
+            # Wait for Android to open the file stream (Critical)
+            time.sleep(0.5)
+
+            with open(file_path, "rb") as f:
+                total_sent = 0
+                chunk_counter = 0
+
+                while True:
+                    # Read 64KB chunks (Optimal for TCP)
+                    chunk = f.read(64 * 1024)
+                    if not chunk:
+                        break
+
+                    # 2. SEND RAW DATA (As Binary Frame)
+                    # Prefix with 0x01 so Android knows it's a file chunk
+                    header = b'\x01'
+                    packet = header + chunk
+
+                    # Send Binary
+                    if self._loop and self._loop.is_running():
+                        asyncio.run_coroutine_threadsafe(
+                            self._broadcast_bytes(packet),
+                            self._loop
+                        )
+
+                    total_sent += len(chunk)
+                    chunk_counter += 1
+
+                    # Tiny sleep to prevent router buffer overflow
+                    # 0.005s is fast but safe for binary
+                    time.sleep(0.005)
+
+                    # Log progress occasionally
+                    if chunk_counter % 50 == 0:
+                        print(f"Sent {total_sent} bytes...")
+
+            # 3. SEND END SIGNAL (As Binary Frame)
+            # Header 0x02 means "End of File"
+            end_packet = b'\x02'
+            if self._loop:
+                asyncio.run_coroutine_threadsafe(self._broadcast_bytes(end_packet), self._loop)
+
+            print(f"✅ COMPLETE. Sent {total_sent} bytes.")
+            self._put("log", f"✅ Sent {filename}")
+
+        except Exception as e:
+            print(f"Error: {e}")
+            self._put("log", f"❌ Error: {e}")
+            import traceback
+            traceback.print_exc()
+        finally:
+            if self.sending_lock.locked():
+                self.sending_lock.release()
+
+    # Add this helper method to your class if missing
+    async def _broadcast_bytes(self, data):
+        """Helper to send raw bytes to all connected clients."""
+        for client in list(self.clients):
+            try:
+                await client.send(data)
+            except:
+                pass
+
+    def _handle_file_transfer(self, data):
+        try:
+            # 1. Debug: Check if we got data at all
+            # print("DEBUG: Received file packet")
+
+            filename = data.get("filename")
+            if not filename:
+                filename = f"unknown_{int(time.time())}.dat"
+
+            b64_data = data.get("data")
+            is_end = data.get("is_end")
+
+            # 2. Confirm Path
+            file_path = SAVE_DIR / filename
+
+            # 3. Write Data
+            if b64_data:
+                try:
+                    # Create directory if missing (sanity check)
+                    SAVE_DIR.mkdir(parents=True, exist_ok=True)
+
+                    with open(file_path, "ab") as f:
+                        f.write(base64.b64decode(b64_data))
+
+                except Exception as e:
+                    print(f"❌ CRITICAL WRITE ERROR: {e}")
+                    self._put("log", f"❌ Write Error: {e}")
+                    return
+
+            # 4. Handle End of File
+            if is_end:
+                abs_path = file_path.absolute()
+                print(f"✅ COMPLETE: File saved to {abs_path}")
+                self._put("log", f"📂 Saved: {filename}")
+                self._put("log", f"📍 Path: {abs_path}")
+                self._put("file_received", str(file_path))
+
+        except Exception as e:
+            print(f"❌ LOGIC ERROR: {e}")
+            self._put("log", f"❌ File Logic Error: {e}")
 
     def _handle_video_frame(self, payload):
         """Process video frame with STRICT rotation logic."""
@@ -1329,25 +1514,42 @@ class UnifiedRemoteServer:
 
     def stop(self):
         """Stop server: schedule shutdown coroutine and stop loop."""
+
+        # 1. STOP UDP MOUSE (Critical Fix)
+        if hasattr(self, 'udp_mouse'):
+            self.udp_mouse.stop()
+
+        # 2. STOP DISCOVERY
         if hasattr(self, 'discovery'):
             self.discovery.stop()
+
+        # 3. STOP VIRTUAL CAMERA
+        if self._vcam_running:
+            self.stop_virtual_camera()
+
+        # 4. STOP AUDIO
+        if self._streaming_audio:
+            self.stop_audio_streaming()
+
+        # 5. STOP WEBSOCKET SERVER
         if not (self._thread and self._thread.is_alive() and self._loop):
-            self._put("log", "⚠️ Server not running")
+            self._put("log", "⚠️ Server thread not active")
             return
 
         try:
             # Schedule server shutdown coroutine
-            # This will also call loop.stop()
             asyncio.run_coroutine_threadsafe(self._shutdown_server(), self._loop)
         except Exception as e:
             self._put("log", f"❌ Error while stopping server: {e}")
 
         # Wait for thread to join
         self._thread.join(timeout=3)
+
         if self._thread.is_alive():
             self._put("log", "⚠️ Warning: server thread did not exit immediately")
         else:
             self._put("log", "✅ Server stopped")
+
         self._thread = None
         self._loop = None
         self._ws_server = None
@@ -1368,550 +1570,338 @@ class UnifiedRemoteServer:
 
 
 class UDPMouseServer(threading.Thread):
-    def __init__(self, port=8081):  # Standard port + 1
+    def __init__(self, port=8081):
         super().__init__()
         self.port = port
         self.running = True
-        self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        # Non-blocking allows us to stop the thread cleanly
-        self.sock.setblocking(False)
-        self.sock.bind(("0.0.0.0", self.port))
+        self.sock = None  # Initialize as None
 
     def run(self):
         import ctypes
-        print(f"🚀 UDP Mouse Server listening on port {self.port}")
+
+        try:
+            self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            # CRITICAL: Allow port reuse
+            self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            self.sock.setblocking(False)
+            self.sock.bind(("0.0.0.0", self.port))
+            print(f"🚀 UDP Mouse Server listening on port {self.port}")
+        except Exception as e:
+            print(f"❌ UDP Bind Failed: {e}")
+            self.running = False
+            return
 
         while self.running:
             try:
-                # Receive packet (1024 bytes is plenty)
                 data, _ = self.sock.recvfrom(1024)
-
-                # Expected format: "dx,dy" string (e.g., "10,-5")
-                # This is faster than JSON
                 decoded = data.decode('utf-8')
                 parts = decoded.split(',')
                 if len(parts) == 2:
                     dx = int(parts[0])
                     dy = int(parts[1])
-
-                    # Direct Injection
                     ctypes.windll.user32.mouse_event(0x0001, dx, dy, 0, 0)
-
             except BlockingIOError:
-                # No data received, sleep tiny amount to save CPU
                 time.sleep(0.001)
             except Exception:
                 pass
 
-        self.sock.close()
+        # Cleanup when loop ends
+        if self.sock:
+            self.sock.close()
 
     def stop(self):
         self.running = False
-
-
-
-
-
-
-
-
+        # Do NOT close socket here, let the loop finish and close it safely
 
 
 class ServerGUI:
     def __init__(self):
-        self.window = tk.Tk()
-        self.window.title("Use AS Server")
-        self.window.geometry("600x850")  # Increased from 600x700 to 600x850
-        self.window.resizable(True, True)  # Allow resizing
+        self.root = tk.Tk()
+        self.root.title("Use As Server")
+        self.root.geometry("600x850")
+        self.root.configure(bg=COLORS["bg"])
 
-        # Set background color for the main window
-        self.window.configure(bg="#f0f0f0")
-
-        # Try to set icon
         try:
             if Path("icon.ico").exists():
-                self.window.iconbitmap("icon.ico")
-        except Exception as e:
-            print(f"Warning: Could not load icon: {e}")
+                self.root.iconbitmap("icon.ico")
+        except:
+            pass
 
         self.update_queue = queue.Queue()
         self.server = None
         self.is_running = False
 
-        # Create UI
-        self.create_widgets()
+        self.setup_ui()
+        self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
+        self.root.after(100, self.process_queue)
 
-        # Window close handler
-        self.window.protocol("WM_DELETE_WINDOW", self.on_closing)
+    def setup_ui(self):
+        style = ttk.Style()
+        style.theme_use('clam')
+        style.configure("TNotebook", background=COLORS["bg"], borderwidth=0)
+        style.configure("TNotebook.Tab", background=COLORS["secondary"], foreground=COLORS["fg"], padding=[15, 5])
+        style.map("TNotebook.Tab", background=[("selected", COLORS["accent"])], foreground=[("selected", "#000")])
+        style.configure("TFrame", background=COLORS["bg"])
 
-        # Start polling the update_queue
-        self.window.after(200, self._process_queue)
+        self.notebook = ttk.Notebook(self.root)
+        self.notebook.pack(fill='both', expand=True, padx=10, pady=10)
 
-    def create_widgets(self):
-        # Header
-        header_frame = tk.Frame(self.window, bg="#2196F3", height=80)
-        header_frame.pack(fill=tk.X)
-        header_frame.pack_propagate(False)
+        self.tab_dashboard = ttk.Frame(self.notebook)
+        self.notebook.add(self.tab_dashboard, text="  Dashboard  ")
+        self.build_dashboard(self.tab_dashboard)
 
-        title_label = tk.Label(
-            header_frame,
-            text="Use As Server",
-            font=("Segoe UI", 20, "bold"),
-            bg="#2196F3",
-            fg="white",
-        )
-        title_label.pack(pady=20)
+        self.tab_sharing = ttk.Frame(self.notebook)
+        self.notebook.add(self.tab_sharing, text="  Sharing  ")
+        self.build_sharing(self.tab_sharing)
 
-        # Status Frame
-        status_frame = ttk.LabelFrame(self.window, text="Status", padding=10)
-        status_frame.pack(fill=tk.X, padx=20, pady=10)
+    def build_dashboard(self, parent):
+        header = tk.Frame(parent, bg=COLORS["bg"])
+        header.pack(fill='x', pady=20)
+        tk.Label(header, text="Use As Server", font=("Segoe UI", 24, "bold"), bg=COLORS["bg"], fg=COLORS["fg"]).pack()
 
-        # Status indicator
-        status_container = tk.Frame(status_frame)
-        status_container.pack(fill=tk.X)
+        self.status_label = tk.Label(header, text="🔴 Offline", font=("Segoe UI", 10), bg=COLORS["secondary"],
+                                     fg=COLORS["error"], padx=10, pady=5)
+        self.status_label.pack(pady=10)
 
-        self.status_indicator = tk.Canvas(status_container, width=20, height=20, bg="white", highlightthickness=0)
-        self.status_indicator.pack(side=tk.LEFT, padx=(0, 10))
-        self.status_circle = self.status_indicator.create_oval(2, 2, 18, 18, fill="red", outline="")
+        self.ip_var = tk.StringVar(value="Not Running")
+        tk.Entry(parent, textvariable=self.ip_var, font=("Consolas", 12), justify='center', bg=COLORS["secondary"],
+                 fg=COLORS["accent"], relief='flat', state='readonly').pack(pady=5, ipadx=10, ipady=5)
 
-        self.status_label = tk.Label(status_container, text="Server Stopped", font=("Segoe UI", 11), anchor="w")
-        self.status_label.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        self.btn_start = tk.Button(parent, text="START SERVER", font=("Segoe UI", 12, "bold"), bg=COLORS["accent"],
+                                   fg="black", activebackground=COLORS["accent_hover"], relief='flat',
+                                   command=self.toggle_server)
+        self.btn_start.pack(pady=15, ipadx=30, ipady=10)
 
-        # Connection Info Frame
-        info_frame = ttk.LabelFrame(self.window, text="Connection Information", padding=10)
-        info_frame.pack(fill=tk.X, padx=20, pady=(0, 10))
+        # Features
+        features_frame = tk.LabelFrame(parent, text="Features", bg=COLORS["bg"], fg=COLORS["fg"],
+                                       font=("Segoe UI", 10, "bold"))
+        features_frame.pack(fill='x', padx=20, pady=10)
 
-        # IP Address
-        ip_container = tk.Frame(info_frame)
-        ip_container.pack(fill=tk.X, pady=5)
+        def mk_btn(txt, cmd, color):
+            return tk.Button(features_frame, text=txt, font=("Segoe UI", 10), bg=color, fg="white", relief='flat',
+                             command=cmd, state='disabled')
 
-        tk.Label(ip_container, text="Server Address:", font=("Segoe UI", 10, "bold")).pack(side=tk.LEFT)
+        self.btn_vcam = mk_btn("📹 Virtual Camera", self.toggle_vcam, "#9c27b0")
+        self.btn_vcam.pack(fill='x', pady=2, padx=5)
 
-        self.ip_label = tk.Label(ip_container, text="Not running", font=("Segoe UI", 10), fg="#666")
-        self.ip_label.pack(side=tk.LEFT, padx=(10, 0))
+        self.btn_audio = mk_btn("🔊 Audio Streaming", self.toggle_audio, "#2196f3")
+        self.btn_audio.pack(fill='x', pady=2, padx=5)
 
-        self.copy_button = ttk.Button(ip_container, text="📋 Copy Address", command=self.copy_ip, state="disabled")
-        self.copy_button.pack(side=tk.RIGHT)
+       
 
-        # Connected Clients
-        clients_container = tk.Frame(info_frame)
-        clients_container.pack(fill=tk.X, pady=5)
+        log_frame = tk.LabelFrame(parent, text="Activity Log", bg=COLORS["bg"], fg=COLORS["text_dim"],
+                                  font=("Consolas", 9))
+        log_frame.pack(fill='both', expand=True, padx=20, pady=10)
 
-        tk.Label(clients_container, text="Connected Clients:", font=("Segoe UI", 10, "bold")).pack(side=tk.LEFT)
+        self.log_text = scrolledtext.ScrolledText(log_frame, height=5, bg=COLORS["secondary"], fg=COLORS["fg"],
+                                                  font=("Consolas", 9), relief='flat')
+        self.log_text.pack(fill='both', expand=True, padx=5, pady=5)
 
-        self.clients_label = tk.Label(clients_container, text="0", font=("Segoe UI", 10), fg="#666")
-        self.clients_label.pack(side=tk.LEFT, padx=(10, 0))
+    def build_sharing(self, parent):
+        # Clipboard
+        frame_clip = tk.LabelFrame(parent, text="Clipboard", bg=COLORS["bg"], fg=COLORS["fg"])
+        frame_clip.pack(fill='x', padx=20, pady=10)
+        self.txt_clip = tk.Text(frame_clip, height=3, bg=COLORS["secondary"], fg=COLORS["fg"], relief='flat')
+        self.txt_clip.pack(fill='x', padx=10, pady=5)
 
-        # Control Buttons Frame
-        button_frame = tk.Frame(self.window)
-        button_frame.pack(fill=tk.X, padx=20, pady=10)
+        btn_frame = tk.Frame(frame_clip, bg=COLORS["bg"])
+        btn_frame.pack(fill='x', padx=10, pady=5)
+        tk.Button(btn_frame, text="Copy to PC", bg=COLORS["secondary"], fg=COLORS["fg"], relief='flat',
+                  command=self.copy_to_pc).pack(side='left')
+        tk.Button(btn_frame, text="Send Text to Phone", bg=COLORS["accent"], fg="black", relief='flat',
+                  command=self.send_text_to_phone).pack(side='right')
 
-        # Start/Stop Server Button
-        self.start_button = tk.Button(
-            button_frame,
-            text="▶  Start Server",
-            command=self.toggle_server,
-            font=("Segoe UI", 11, "bold"),
-            bg="#4CAF50",
-            fg="white",
-            activebackground="#45a049",
-            activeforeground="white",
-            cursor="hand2",
-            relief=tk.FLAT,
-            padx=20,
-            pady=10,
-        )
-        self.start_button.pack(fill=tk.X)
+        # Files
+        frame_file = tk.LabelFrame(parent, text="File Transfer", bg=COLORS["bg"], fg=COLORS["fg"])
+        frame_file.pack(fill='both', expand=True, padx=20, pady=10)
 
-        # Features Label
-        features_label_frame = tk.Frame(self.window)
-        features_label_frame.pack(fill=tk.X, padx=20, pady=(10, 5))
+        self.list_files = tk.Listbox(frame_file, bg=COLORS["secondary"], fg=COLORS["fg"], relief='flat')
+        self.list_files.pack(fill='both', expand=True, padx=10, pady=5)
+        self.list_files.bind("<Double-Button-1>", self.open_file)
 
-        tk.Label(
-            features_label_frame,
-            text="Features:",
-            font=("Segoe UI", 11, "bold"),
-            anchor="w"
-        ).pack(side=tk.LEFT)
+        btn_frame_f = tk.Frame(frame_file, bg=COLORS["bg"])
+        btn_frame_f.pack(fill='x', padx=10, pady=10)
 
-        # Audio Streaming Button
-        audio_frame = tk.Frame(self.window)
-        audio_frame.pack(fill=tk.X, padx=20, pady=(0, 5))
+        # Button: Open Folder
+        tk.Button(btn_frame_f, text="Open Received Files", bg=COLORS["secondary"], fg=COLORS["fg"], relief='flat',
+                  command=self.open_folder).pack(side='left')
 
-        self.audio_button = tk.Button(
-            audio_frame,
-            text="🔊 Audio Streaming",
-            command=self.toggle_audio,
-            font=("Segoe UI", 10),
-            bg="#2196F3",
-            fg="white",
-            activebackground="#1976D2",
-            activeforeground="white",
-            cursor="hand2",
-            relief=tk.FLAT,
-            padx=20,
-            pady=8,
-            state="disabled"
-        )
-        self.audio_button.pack(fill=tk.X)
+        # Button: Send File (THIS IS THE NEW ONE)
+        tk.Button(btn_frame_f, text="Send File to Phone", bg=COLORS["accent"], fg="black", relief='flat',
+                  command=self.send_file_pick).pack(side='right')
 
-        # Virtual Camera Button
-        vcam_frame = tk.Frame(self.window)
-        vcam_frame.pack(fill=tk.X, padx=20, pady=(0, 5))
-
-        self.vcam_button = tk.Button(
-            vcam_frame,
-            text="📹 Virtual Camera",
-            command=self.toggle_vcam,
-            font=("Segoe UI", 10),
-            bg="#9C27B0",
-            fg="white",
-            activebackground="#7B1FA2",
-            activeforeground="white",
-            cursor="hand2",
-            relief=tk.FLAT,
-            padx=20,
-            pady=8,
-            state="disabled"
-        )
-        self.vcam_button.pack(fill=tk.X)
-
-
-
-        # Display Button
-        display_frame = tk.Frame(self.window)
-        display_frame.pack(fill=tk.X, padx=20, pady=(0, 5))
-
-        self.display_button = tk.Button(
-            display_frame,
-            text="🖥️ Second Display",
-            command=self.toggle_display,
-            font=("Segoe UI", 10),
-            bg="#00BCD4",
-            fg="white",
-            activebackground="#0097A7",
-            activeforeground="white",
-            cursor="hand2",
-            relief=tk.FLAT,
-            padx=20,
-            pady=8,
-            state="disabled"
-        )
-        self.display_button.pack(fill=tk.X)
-
-
-
-        # Log Frame
-        log_frame = ttk.LabelFrame(self.window, text="Activity Log", padding=10)
-        log_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=(10, 20))
-
-        self.log_text = scrolledtext.ScrolledText(
-            log_frame, height=12, font=("Consolas", 9), bg="#f5f5f5", wrap=tk.WORD
-        )
-        self.log_text.pack(fill=tk.BOTH, expand=True)
-
-        # Configure text tags
-        self.log_text.tag_config("INFO", foreground="#2196F3")
-        self.log_text.tag_config("WARNING", foreground="#FF9800")
-        self.log_text.tag_config("ERROR", foreground="#F44336")
-        self.log_text.tag_config("SUCCESS", foreground="#4CAF50")
-
-        # Initial log messages
-        self.log("🎉 Welcome to Use As Server!", "SUCCESS")
-        self.log(f"💻 Platform: {platform.system()} {platform.release()}", "INFO")
-        self.log("📱 Ready to accept Android connections", "INFO")
-
-    def toggle_vmic(self):
-        """Toggle virtual microphone."""
-        if not self.server:
-            return
-
-        if not hasattr(self.server, '_virtual_mic_active') or not self.server._virtual_mic_active:
-            # Start virtual microphone
-            if self.server.start_virtual_microphone():
-                self.vmic_button.config(
-                    text="🎤 Stop Microphone",
-                    bg="#F44336",
-                    activebackground="#da190b"
-                )
-                self.log("🎤 Virtual microphone started", "SUCCESS")
-        else:
-            # Stop virtual microphone
-            self.server.stop_virtual_microphone()
-            self.vmic_button.config(
-                text="🎤 Virtual Microphone",
-                bg="#E91E63",
-                activebackground="#C2185B"
-            )
-            self.log("🎤 Virtual microphone stopped", "INFO")
-    def toggle_vcam(self):
-        """Toggle virtual camera."""
-        if not self.server:
-            return
-
-        if not self.server._vcam_running:
-            self.server.start_virtual_camera()
-            self.vcam_button.config(
-                text="🎬 Stop Virtual Camera",
-                bg="#F44336",
-                activebackground="#da190b"
-            )
-        else:
-            self.server.stop_virtual_camera()
-            self.vcam_button.config(
-                text="📹 Start Virtual Camera",
-                bg="#9C27B0",
-                activebackground="#7B1FA2"
-            )
-
-    def toggle_audio(self):
-        """Toggle audio streaming."""
-        if not self.server:
-            return
-
-        if not self.server._streaming_audio:
-            self.server.start_audio_streaming()
-            self.audio_button.config(
-                text="🔇 Stop Audio Streaming",
-                bg="#F44336",
-                activebackground="#da190b"
-            )
-        else:
-            self.server.stop_audio_streaming()
-            self.audio_button.config(
-                text="🔊 Start Audio Streaming",
-                bg="#2196F3",
-                activebackground="#1976D2"
-            )
-
-    def toggle_gamepad(self):
-        """Toggle virtual gamepad."""
-        if not self.server:
-            return
-
-        if not hasattr(self.server, '_gamepad_active') or not self.server._gamepad_active:
-            # Start virtual gamepad
-            try:
-                import vgamepad as vg
-
-                try:
-                    self.server._gamepad = vg.VX360Gamepad()
-                    self.server._gamepad_active = True
-
-                    self.gamepad_button.config(
-                        text="🎮 Stop Gamepad",
-                        bg="#795548",
-                        activebackground="#5D4037"
-                    )
-                    self.log("🎮 Virtual gamepad connected!", "SUCCESS")
-
-                except Exception as e:
-                    if "ViGEmBus" in str(e):
-                        self.log("❌ ViGEmBus driver not installed!", "ERROR")
-                        self.log("📥 Download: https://github.com/ViGEm/ViGEmBus/releases", "INFO")
-                    else:
-                        self.log(f"❌ Gamepad error: {e}", "ERROR")
-
-            except ImportError:
-                self.log("❌ vgamepad not installed", "ERROR")
-                self.log("💡 Run: pip install vgamepad", "INFO")
-        else:
-            # Stop virtual gamepad
-            if hasattr(self.server, '_gamepad'):
-                del self.server._gamepad
-            self.server._gamepad_active = False
-
-            self.gamepad_button.config(
-                text="🎮 Virtual Gamepad",
-                bg="#FF5722",
-                activebackground="#E64A19"
-            )
-            self.log("🎮 Virtual gamepad disconnected", "INFO")
-
-
+    # --- ACTIONS ---
     def toggle_server(self):
         if not self.is_running:
-            self.start_server()
+            self.btn_start.config(text="STOP SERVER", bg=COLORS["error"], fg="white")
+            self.status_label.config(text="🟡 Starting...", fg="orange")
+            threading.Thread(target=self.start_sequence, daemon=True).start()
         else:
             self.stop_server()
 
-    def start_server(self):
+    def start_sequence(self):
         try:
-            # --- OPTIMIZATION: Set High Process Priority ---
-            # This helps prevent audio/video stuttering on your Ryzen laptop
-            try:
-                import psutil, os
-                p = psutil.Process(os.getpid())
-                # ABOVE_NORMAL is safer than HIGH for laptops (prevents total system lockup)
-                p.nice(psutil.ABOVE_NORMAL_PRIORITY_CLASS)
-            except Exception:
-                pass  # Ignore if psutil is missing or permission denied
-            # -----------------------------------------------
+            # Force cleanup of any lingering threads
+            if self.server:
+                self.server.stop()
 
-            # Initialize and Start Server
-            self.server = UnifiedRemoteServer(host="0.0.0.0", port=8080, update_queue=self.update_queue)
+            self.server = UnifiedRemoteServer(update_queue=self.update_queue)
+
+            # Try to start. If ports are busy, this might log an error.
             self.server.start()
-            self.is_running = True
 
-            # Update Status Indicator (Green)
-            self.status_indicator.itemconfig(self.status_circle, fill="#4CAF50")
-            self.status_label.config(text="✓ Server Running", fg="#4CAF50")
+            # Wait up to 2 seconds for the server to actually be ready
+            # We check if the loop is running to confirm success
+            for _ in range(20):
+                if self.server._loop and self.server._loop.is_running():
+                    ip = self.server.get_local_ip()
+                    self.update_queue.put(("server_ready", ip))
+                    return
+                time.sleep(0.1)
 
-            # Get IP Address (Instant/Non-blocking now)
-            ip = self.server.get_local_ip()
-            address = f"ws://{ip}:{self.server.port}"
-            self.ip_label.config(text=address, fg="#2196F3", font=("Consolas", 10, "bold"))
-
-            # Update Start Button to Stop Button
-            self.start_button.config(
-                text="⏹  Stop Server",
-                bg="#F44336",
-                activebackground="#da190b"
-            )
-
-            # Enable Feature Buttons
-            self.copy_button.config(state="normal")
-            self.audio_button.config(state="normal")
-            self.display_button.config(state="normal")
-            self.vcam_button.config(state="normal")
-
-            # Log Success
-            self.log("✅ Server started", "SUCCESS")
-            self.log(f"🌐 IP: {address}", "INFO")
+            # If we get here, it failed to start (likely port busy)
+            raise Exception("Server timed out. Port 8080/8081 might be busy. Wait 5s and try again.")
 
         except Exception as e:
-            self.log(f"❌ Failed to start: {e}", "ERROR")
-            messagebox.showerror("Error", f"Failed to start server:\n{e}")
+            self.update_queue.put(("error", str(e)))
+            # Ensure we reset UI state
+            if self.server:
+                self.server.stop()
+
+    def stop_server(self):
+        if self.server: self.server.stop()
+        self.is_running = False
+        self.btn_start.config(text="START SERVER", bg=COLORS["accent"], fg="black")
+        self.status_label.config(text="🔴 Offline", fg=COLORS["error"])
+        self.ip_var.set("Not Running")
+        for btn in [self.btn_vcam, self.btn_audio, self.btn_display]:
+            btn.config(state='disabled', bg=COLORS["btn_disabled"])
+
+    # --- FEATURE TOGGLES ---
+    def toggle_vcam(self):
+        if not self.server._vcam_running:
+            self.server.start_virtual_camera()
+            self.btn_vcam.config(text="⏹ Stop Camera", bg=COLORS["error"])
+        else:
+            self.server.stop_virtual_camera()
+            self.btn_vcam.config(text="📹 Virtual Camera", bg="#9c27b0")
+
+    def toggle_audio(self):
+        if not self.server._streaming_audio:
+            self.server.start_audio_streaming()
+            self.btn_audio.config(text="🔇 Stop Audio", bg=COLORS["error"])
+        else:
+            self.server.stop_audio_streaming()
+            self.btn_audio.config(text="🔊 Audio Streaming", bg="#2196f3")
 
     def toggle_display(self):
-        """Toggle display streaming."""
-        if not self.server:
+        self.log("Display toggle clicked")
+
+    # --- FILE & TEXT LOGIC ---
+    def send_text_to_phone(self):
+        text = self.txt_clip.get("1.0", tk.END).strip()
+        if text and self.server:
+            self.server.send_to_android("clipboard_text", text)
+            self.log("Sent text to phone")
+
+    def send_file_pick(self):
+        """Open file dialog and send selected files (Multiple supported)."""
+        if not self.server or not self.is_running:
+            messagebox.showwarning("Not Connected", "Please start the server first.")
             return
 
-        if not hasattr(self.server, '_display_active') or not self.server._display_active:
-            self.server._display_active = True
-            self.display_button.config(
-                text="🖥️ Stop Display",
-                bg="#F44336",
-                activebackground="#da190b"
-            )
-            self.log("🖥️ Display streaming enabled - waiting for Android", "SUCCESS")
-        else:
-            self.server._display_active = False
-            self.display_button.config(
-                text="🖥️ Second Display",
-                bg="#00BCD4",
-                activebackground="#0097A7"
-            )
-            self.log("🖥️ Display streaming stopped", "INFO")
-    def stop_server(self):
-        if self.server:
-            # Stop audio if active
-            if self.server._streaming_audio:
-                self.server.stop_audio_streaming()
+        # CHANGE: Use askopenfilenames (Plural) to select multiple
+        file_paths = filedialog.askopenfilenames()
 
-            # Stop virtual camera if active
-            if self.server._vcam_running:
-                self.server.stop_virtual_camera()
+        if file_paths:
+            # Run the loop in a background thread
+            threading.Thread(
+                target=self.process_multiple_files,
+                args=(file_paths,),
+                daemon=True
+            ).start()
 
-            self.log("⏳ Stopping server...", "WARNING")
+    def process_multiple_files(self, file_paths):
+        """Queue multiple files safely."""
+        total = len(file_paths)
+        for i, file_path in enumerate(file_paths):
+            self.log(f"--- Queueing File {i + 1}/{total} ---")
+
+            # This function uses a Lock, so it will wait if a transfer is busy.
+            # It sends File 1, finishes, releases lock, then sends File 2.
+            self.server.send_file_to_phone_thread(file_path)
+
+            # Tiny cool-down between files to let Android save final buffer
+            time.sleep(0.5)
+
+    def copy_to_pc(self):
+        text = self.txt_clip.get("1.0", tk.END).strip()
+        pyperclip.copy(text)
+        self.log("Copied to PC Clipboard")
+
+    def open_folder(self):
+        try:
+            SAVE_DIR.mkdir(parents=True, exist_ok=True)
+            if platform.system() == "Windows":
+                os.startfile(SAVE_DIR)
+            else:
+                subprocess.Popen(["xdg-open", str(SAVE_DIR)])
+        except Exception as e:
+            self.log(f"❌ Could not open folder: {e}")
+
+    def open_file(self, event):
+        selection = self.list_files.curselection()
+        if selection:
+            fname = self.list_files.get(selection[0])
+            path = SAVE_DIR / fname
             try:
-                self.server.stop()
-            except Exception as e:
-                self.log(f"❌ Error stopping server: {e}", "ERROR")
+                if platform.system() == "Windows": os.startfile(path)
+            except:
+                pass
 
-        self.is_running = False
-
-        # Update UI
-        self.status_indicator.itemconfig(self.status_circle, fill="red")
-        self.status_label.config(text="Server Stopped", fg="#666")
-        self.ip_label.config(text="Not running", fg="#666", font=("Segoe UI", 10))
-        self.clients_label.config(text="0", fg="#666")
-        self.start_button.config(text="▶  Start Server", bg="#4CAF50", activebackground="#45a049")
-        self.copy_button.config(state="disabled")
-        self.audio_button.config(state="disabled")
-        self.vcam_button.config(state="disabled")  # Disable vcam button
-
-
-    def copy_ip(self):
-        ip = self.ip_label.cget("text")
+    # --- QUEUE & LOGGING ---
+    def process_queue(self):
         try:
-            self.window.clipboard_clear()
-            self.window.clipboard_append(ip) # Fixed typo here
-            self.log("📋 Server address copied to clipboard!", "SUCCESS")
-            messagebox.showinfo("✓ Copied", f"Server address copied!\n\n{ip}\n\nPaste this in your Android app.")
-        except Exception as e:
-            self.log(f"❌ Failed to copy address: {e}", "ERROR")
-
-    def log(self, message, level="INFO"):
-        """Add message to log."""
-        try:
-            log_line = f"{time.strftime('%H:%M:%S')} {message}\n"
-
-            self.log_text.config(state='normal') # Enable writing
-
-            if "Received:" in message:
-                level = "MSG_IN"
-            elif "Client connected" in message:
-                level = "SUCCESS"
-            elif "Client disconnected" in message:
-                level = "ERROR"
-
-            self.log_text.insert(tk.END, log_line, level)
-            self.log_text.config(state='disabled') # Disable writing
-            self.log_text.see(tk.END)
-        except Exception as e:
-            # This can happen if logging is called after window is destroyed
-            print(f"Error logging: {e}")
-
-    def _process_queue(self):
-        """Process update_queue efficiently."""
-        try:
-            # Process up to 50 items to drain queue fast
-            for _ in range(50):
-                kind, payload = self.update_queue.get_nowait()
-
+            while True:
+                kind, data = self.update_queue.get_nowait()
                 if kind == "log":
-                    # STRICT FILTER: Only show Errors, Warnings, or Connection events
-                    is_important = any(x in payload for x in ["❌", "⚠️", "✅", "Client", "Server"])
-
-                    if is_important:
-                        if "❌" in payload:
-                            self.log(payload, "ERROR")
-                        elif "⚠️" in payload:
-                            self.log(payload, "WARNING")
-                        elif "✅" in payload:
-                            self.log(payload, "SUCCESS")
-                        else:
-                            self.log(payload, "INFO")
-                    # Everything else is ignored (silently dropped)
-
-                elif kind == "client_count":
-                    self.clients_label.config(text=str(payload))
-
-        except queue.Empty:
+                    self.log(data)
+                elif kind == "server_ready":
+                    self.is_running = True
+                    self.status_label.config(text="🟢 Online", fg=COLORS["accent"])
+                    self.ip_var.set(f"ws://{data}:8080")
+                    self.log(f"Server ready on {data}")
+                    self.btn_vcam.config(state='normal', bg="#9c27b0")
+                    self.btn_audio.config(state='normal', bg="#2196f3")
+                    self.btn_display.config(state='normal', bg="#00bcd4")
+                elif kind == "clipboard":
+                    self.txt_clip.delete("1.0", tk.END)
+                    self.txt_clip.insert("1.0", data)
+                elif kind == "file_received":
+                    # Update file list if file is in the SAVE_DIR
+                    path = Path(data)
+                    self.list_files.insert(0, path.name)
+                elif kind == "error":
+                    self.log(f"❌ Error: {data}")
+                    messagebox.showerror("Server Error", f"Failed to start server:\n{data}")
+                    # Reset UI to stopped state
+                    self.is_running = False
+                    self.btn_start.config(text="START SERVER", bg=COLORS["accent"], fg="black")
+                    self.status_label.config(text="🔴 Offline", fg=COLORS["error"])
+        except:
             pass
-        except Exception:
-            pass
-        finally:
-            self.window.after(100, self._process_queue)
+        self.root.after(200, self.process_queue)
+
+    def log(self, msg):
+        self.log_text.insert(tk.END, f"> {msg}\n")
+        self.log_text.see(tk.END)
 
     def on_closing(self):
-        """Handle window close."""
-        if self.is_running:
-            if messagebox.askokcancel("Quit", "Server is running. Do you want to stop?"):
-                try:
-                    # FIX: Removed the 'is_closing=True' argument that caused crashes
-                    self.stop_server()
-                except Exception:
-                    pass
-                self.window.destroy()
-        else:
-            self.window.destroy()
+        if self.is_running: self.stop_server()
+        self.root.destroy()
 
     def run(self):
-        self.window.mainloop()
-
+        self.root.mainloop()
 
 # ============================================
 # MAIN
@@ -1936,6 +1926,11 @@ if __name__ == "__main__":
         print("Please run: pip install websockets pyautogui")
         print("="*50)
         sys.exit(1)
+    import threading
+
+    for thread in threading.enumerate():
+        if thread.name != "MainThread":
+            print(f"⚠️ Warning: Found lingering thread {thread.name}")
 
     app = ServerGUI()
     app.run()
