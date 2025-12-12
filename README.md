@@ -4,7 +4,7 @@
 
 ![License](https://img.shields.io/badge/license-MIT-blue.svg) ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux-lightgrey.svg) ![Python](https://img.shields.io/badge/python-3.10%2B-yellow.svg)
 
-<bold>Website Link</bold> - "https://manjeetdeswal.github.io/Use-As-Server/"
+**website link** - "https://manjeetdeswal.github.io/Use-As-Server/"
 
 ---
 
