@@ -20,10 +20,24 @@ import threading
 import time
 import pyperclip  # For clipboard
 import os         # For file saving
+import webbrowser      # For opening GitHub
+import urllib.request  # For checking updates
+import winreg          # For Auto-Start with Windows
+import cv2
+import pystray                   # pip install pystray
+from pystray import MenuItem as item
+import numpy as np
+from PIL import Image, ImageDraw, ImageTk
 
 if sys.platform == "win32":
     import win32api
     import ctypes
+    from ctypes import windll, wintypes
+# --- CONSTANTS ---
+APP_VERSION = "1.0.0"
+GITHUB_REPO = "manjeetdeswal/Use-As-Server" # ⚠️ CHANGE THIS to your actual "user/repo"
+GITHUB_URL = f"https://github.com/{GITHUB_REPO}"
+SETTINGS_FILE = Path.home() / "Downloads" / "UseAs_Received" / "server_settings.json"
 # ============================================
 # SERVER CODE (async websockets running in a background thread)
 # ============================================
@@ -55,23 +69,17 @@ except Exception as e:
 class DiscoveryServer(threading.Thread):
     def __init__(self, port=8080):
         super().__init__()
-        self.port = port
+        self.port = port  # This is the TCP port the phone should connect to
         self.running = True
 
     def get_broadcast_addresses(self):
         """Find broadcast address for every interface."""
         addresses = set()
         try:
-            # Always try the generic broadcast
             addresses.add('<broadcast>')
-
-            # Get all local IPs
             hostname = socket.gethostname()
             local_ips = socket.gethostbyname_ex(hostname)[2]
-
             for ip in local_ips:
-                # Calculate broadcast for this IP (assuming standard /24 subnet)
-                # e.g., 192.168.1.5 -> 192.168.1.255
                 parts = ip.split('.')
                 if len(parts) == 4:
                     broadcast = f"{parts[0]}.{parts[1]}.{parts[2]}.255"
@@ -85,18 +93,19 @@ class DiscoveryServer(threading.Thread):
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
         sock.settimeout(0.2)
 
+        # BROADCAST FORMAT: "UNIFIED_REMOTE_SERVER:PORT"
         message = f"UNIFIED_REMOTE_SERVER:{self.port}".encode('utf-8')
-        logging.info(f"Starting discovery broadcast on port 8888...")
+        logging.info(f"Starting discovery broadcast for port {self.port}...")
 
         while self.running:
             targets = self.get_broadcast_addresses()
             for target in targets:
                 try:
+                    # We broadcast TO port 8888 (The phone listens on this port)
                     sock.sendto(message, (target, 8888))
                 except:
-                    pass  # Ignore errors on disconnected interfaces
-
-            time.sleep(1)  # Announce every second
+                    pass
+            time.sleep(1)
 
         sock.close()
 
@@ -109,56 +118,68 @@ class UnifiedRemoteServer:
         import threading
         self.sending_lock = threading.Lock()
         self.host = host
+        self.port = port  # Main TCP Port
+
         self.ack_event = threading.Event()
-        self.port = port
         self.clients = set()
         self._loop = None
         self._ws_server = None
         self._thread = None
         self.update_queue = update_queue or queue.Queue()
         self._stop_event = threading.Event()
-        self.discovery = DiscoveryServer(port)
+
+        # 1. START DISCOVERY (Broadcasts the TCP port)
+        self.discovery = DiscoveryServer(port=self.port)
         self.discovery.start()
 
-        # START UDP MOUSE SERVER
-        self.udp_mouse = UDPMouseServer(port=8081)
-        self.udp_mouse.daemon = True  # Kill when app closes
+        # 2. START UDP MOUSE (Listens on TCP Port + 1)
+        self.udp_port = self.port + 1
+        self.udp_mouse = UDPMouseServer(port=self.udp_port)
+        self.udp_mouse.daemon = True
         self.udp_mouse.start()
 
-        # Thread-safe message queue for broadcasting
-        self._broadcast_queue = asyncio.Queue()
+        # --- FIX: DO NOT CREATE ASYNCIO OBJECTS HERE ---
+        # asyncio.Queue() requires an active event loop.
+        # Since __init__ runs in a standard thread, this would crash.
+        # We initialize it as None here, and create the real Queue inside _run_loop later.
+        self._broadcast_queue = None
+        # -----------------------------------------------
 
-        # Virtual camera
+        # ... (Rest of variables: vcam, audio, display, codec, etc.) ...
         self._vcam = None
         self._vcam_running = False
         self._last_frame = None
         self._frame_count = 0
-
-        # Audio streaming
         self._audio_stream = None
         self._audio_thread = None
         self._streaming_audio = False
         self._display_active = False
-        # Initialize this
         self._gamepad_active = False
         self.client_gamepads = {}
-
-        # Display settings
         self._display_width = 1920
         self._display_height = 1080
 
-        self._codec = None
+        # ... (Rest of your initialization variables remain the same) ...
+        self.bg_mode = "none"
+        self.bg_image_path = None
+        self.bg_image_cache = None
+        self.preview_active = True
+        self.latest_preview_frame = None
+        self.is_mirrored = False
+        self.is_flipped = False
+        self.brightness_boost = 0
+        self.target_w = 1280
+        self.target_h = 720
+        self.mp_selfie = None
+        self.segmentor = None
 
         try:
             user32 = ctypes.windll.user32
-            # SM_XVIRTUALSCREEN = 76, SM_YVIRTUALSCREEN = 77
-            # SM_CXVIRTUALSCREEN = 78, SM_CYVIRTUALSCREEN = 79
             self.min_x = user32.GetSystemMetrics(76)
             self.min_y = user32.GetSystemMetrics(77)
             self.max_x = self.min_x + user32.GetSystemMetrics(78)
             self.max_y = self.min_y + user32.GetSystemMetrics(79)
         except:
-            # Fallback to standard 1080p if fails
             self.min_x, self.min_y = 0, 0
             self.max_x, self.max_y = 1920, 1080
 
@@ -232,6 +253,7 @@ class UnifiedRemoteServer:
 
     def make_handler(self):
         """Return an async handler that captures self."""
+
         async def handler(websocket):
             self.clients.add(websocket)
             remote_addr = f"{websocket.remote_address[0]}:{websocket.remote_address[1]}"
@@ -241,7 +263,7 @@ class UnifiedRemoteServer:
             try:
                 async for message in websocket:
                     try:
-                        # FIX: Handle Binary Data (Video frames often come as bytes)
+                        # 1. Handle Binary Data (Video frames often come as bytes)
                         if isinstance(message, bytes):
                             try:
                                 message = message.decode('utf-8')
@@ -252,24 +274,53 @@ class UnifiedRemoteServer:
                         msg_type = data.get("type", "unknown")
                         payload = data.get("payload", "")
 
+                        # --- ROUTING MESSAGES ---
                         if msg_type == "video_frame":
                             self._handle_video_frame(payload)
                         elif msg_type == "mouse_move":
                             self._handle_mouse_move(payload)
                         elif msg_type == "mouse_click":
                             self._handle_mouse_click(payload)
-                        if msg_type == "ack":
+                        elif msg_type == "mouse_scroll":
+                            self._handle_mouse_scroll(payload)
+                        elif msg_type == "key_press":
+                            self._handle_key_press(payload)
+                        elif msg_type == "ack":
                             self.ack_event.set()
+
+                        # --- AUDIO & GAMEPAD ---
+                        elif msg_type == "audio_frame":
+                            self._handle_audio_frame(payload)
+
+                        elif msg_type == "audio_control":
+                            action = payload
+                            if action == "start":
+                                self._put("log", "📲 Auto-starting Audio Stream...")
+                                # Run in thread to avoid blocking the websocket loop
+                                threading.Thread(target=self.start_audio_streaming, daemon=True).start()
+
+                                # OPTIONAL: Update GUI Button automatically
+                                # This requires a callback or queue event handled by process_queue
+                                self._put("audio_status", True)
+
+                            elif action == "stop":
+                                self._put("log", "📲 Client requested Audio Stop")
+                                self.stop_audio_streaming()
+                                self._put("audio_status", False)
+                        elif msg_type == "gamepad_state":
+                            # Pass websocket so we know WHICH controller to update
+                            self._handle_gamepad_state(payload, websocket)
+
+                        # --- CLIPBOARD & FILES ---
                         elif msg_type == "clipboard_text":
                             try:
-                                # Sometimes payload is double-encoded JSON
                                 if isinstance(payload, str) and payload.startswith('{'):
                                     inner = json.loads(payload)
                                     text = inner.get("text", "")
                                 else:
                                     text = str(payload)
-
                                 if text:
+                                    import pyperclip
                                     pyperclip.copy(text)
                                     self._put("clipboard", text)
                                     self._put("log", "📋 Text copied from phone")
@@ -277,43 +328,36 @@ class UnifiedRemoteServer:
                                 pass
 
                         elif msg_type == "file_transfer":
-                           # print("DEBUG: Route file transfer")
                             if isinstance(payload, str):
                                 payload = json.loads(payload)
                             self._handle_file_transfer(payload)
 
                         elif msg_type == "display_request":
                             self._handle_display_request(payload)
-                        elif msg_type == "gamepad_state":
-                            self._handle_gamepad_state(payload,websocket)
-                        elif msg_type == "audio_frame":
-                            self._handle_audio_frame(payload)
-                        elif msg_type == "mouse_scroll":
-                            self._handle_mouse_scroll(payload)
-                        elif msg_type == "key_press":
-                            self._handle_key_press(payload)
+
                         elif msg_type == "heartbeat":
                             await websocket.send(json.dumps({"type": "heartbeat", "payload": "pong"}))
 
                     except json.JSONDecodeError:
                         pass
                     except Exception as e:
-                        self._put("log", f"❌ Error: {e}")
+                        pass  # Ignore tiny decode errors
 
             except websockets.ConnectionClosedOK:
                 pass
             except Exception as e:
                 self._put("log", f"⚠️ Handler error: {e}")
+
+            # --- CLEANUP ON DISCONNECT ---
             finally:
                 if websocket in self.clients:
                     self.clients.remove(websocket)
 
-                    # REMOVE SPECIFIC GAMEPAD FOR THIS CLIENT
+                # 🔌 UNPLUG GAMEPAD (Fixes "4 Controllers" issue)
                 if hasattr(self, 'client_gamepads') and websocket in self.client_gamepads:
                     try:
-                        # Removing the object usually triggers vgamepad to unplug the virtual device
                         del self.client_gamepads[websocket]
-                        self._put("log", f"🎮 Gamepad disconnected for {remote_addr}")
+                        self._put("log", f"🎮 Gamepad unplugged for {remote_addr}")
                     except Exception as e:
                         print(f"Error removing gamepad: {e}")
 
@@ -444,87 +488,194 @@ class UnifiedRemoteServer:
             print(f"❌ LOGIC ERROR: {e}")
             self._put("log", f"❌ File Logic Error: {e}")
 
-    def _handle_video_frame(self, payload):
-        """Process video frame with STRICT rotation logic."""
-        try:
-            import json
-            import base64
-            import numpy as np
-            import cv2
+    def _place_on_canvas(self, image, w, h):
+        """Centers image on black canvas. Handles resolution changes dynamically."""
+        import numpy as np
 
-            # 1. Parse Payload
+        # 1. FIX: Check if canvas exists AND if it matches the new target size
+        if not hasattr(self, '_canvas') or self._canvas.shape[0] != h or self._canvas.shape[1] != w:
+            self._canvas = np.zeros((h, w, 3), dtype=np.uint8)
+            # Force reset of dimensions logic
+            self._last_dims = None
+
+        ih, iw = image.shape[:2]
+        y = (h - ih) // 2
+        x = (w - iw) // 2
+
+        # 2. Clear previous area if the image size/position changed
+        if hasattr(self, '_last_dims') and self._last_dims != (x, y, iw, ih):
+            self._canvas.fill(0)
+
+        self._last_dims = (x, y, iw, ih)
+
+        # 3. Safety Check: Ensure the image actually fits
+        # If the input image is somehow larger than the target, crop it
+        if ih > h or iw > w:
+            image = cv2.resize(image, (w, h), interpolation=cv2.INTER_AREA)
+            ih, iw = h, w
+            y, x = 0, 0
+
+        self._canvas[y:y + ih, x:x + iw] = image
+        return self._canvas
+
+    def _handle_video_frame(self, payload):
+        try:
+            # ... (Parsing and Decoding - Keep existing code) ...
             if isinstance(payload, str):
                 try:
                     frame_data = json.loads(payload)
-                except json.JSONDecodeError:
-                    frame_data = {'data': payload}
+                except:
+                    return
             else:
                 frame_data = payload
 
             b64_data = frame_data.get('data')
-            if not b64_data:
-                return
+            if not b64_data: return
 
             rotation = frame_data.get('rotation', 0)
             is_front = frame_data.get('is_front', False)
 
-            # 2. Decode JPEG
             jpeg_bytes = base64.b64decode(b64_data)
             nparr = np.frombuffer(jpeg_bytes, dtype=np.uint8)
-            bgr_frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+            frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+            if frame is None: return
 
-            if bgr_frame is None:
-                return
+            # --- USE DYNAMIC TARGET RESOLUTION ---
+            TARGET_W, TARGET_H = self.target_w, self.target_h
 
-            # 3. Apply Rotation & Mirroring Logic
-            # Front cameras are usually mirrored hardware-wise.
-            # The logic below handles the standard Android behavior.
+            h, w = frame.shape[:2]
 
+            # Smart resize logic
+            scale = min(TARGET_W / w, TARGET_H / h)
+            if scale < 1.0:
+                new_w, new_h = int(w * scale), int(h * scale)
+                frame = cv2.resize(frame, (new_w, new_h), interpolation=cv2.INTER_LINEAR)
+
+            # ... (Rotation, Mirroring, Brightness logic - Keep existing code) ...
+
+            # 4. Rotate
             if rotation == 90:
-                bgr_frame = cv2.rotate(bgr_frame, cv2.ROTATE_90_CLOCKWISE)
+                frame = cv2.rotate(frame, cv2.ROTATE_90_CLOCKWISE)
             elif rotation == 270:
-                bgr_frame = cv2.rotate(bgr_frame, cv2.ROTATE_90_COUNTERCLOCKWISE)
+                frame = cv2.rotate(frame, cv2.ROTATE_90_COUNTERCLOCKWISE)
             elif rotation == 180:
-                bgr_frame = cv2.rotate(bgr_frame, cv2.ROTATE_180)
+                frame = cv2.rotate(frame, cv2.ROTATE_180)
 
-            # FIX: Apply mirroring AFTER rotation for front camera.
-            # If it's upside down, we need to flip it vertically (0) or both (-1).
-            # Standard front cam behavior after rotation usually requires a horizontal flip (1) to act like a mirror.
-            # BUT if yours is upside down, let's try flipping both axes (-1) or vertical (0).
-
+            should_mirror = False
             if is_front:
-                if rotation == 270 or rotation == 90:
-                    # Portrait Mode Front Camera Fix
-                    # Try converting the flip. If 1 (horizontal) was upside down,
-                    # then 0 (vertical) or -1 (both) should fix it.
-                    # Let's try -1 (Both) which is a common fix for "Upside Down & Mirrored"
-                    bgr_frame = cv2.flip(bgr_frame, 0)
+                if rotation in [90, 270]:
+                    frame = cv2.flip(frame, 0)
                 else:
-                    # Landscape Mode Front Camera
-                    bgr_frame = cv2.flip(bgr_frame, 1)
+                    should_mirror = True
 
-            # 4. Convert to RGB
-            rgb_frame = cv2.cvtColor(bgr_frame, cv2.COLOR_BGR2RGB)
+            if self.is_mirrored: should_mirror = not should_mirror
+            if should_mirror: frame = cv2.flip(frame, 1)
+            if self.is_flipped: frame = cv2.flip(frame, 0)
 
-            # 5. Fit into 1280x720
-            TARGET_W, TARGET_H = 1280, 720
-            h, w = rgb_frame.shape[:2]
+            if self.brightness_boost != 0:
+                frame = cv2.convertScaleAbs(frame, alpha=1, beta=self.brightness_boost)
 
-            if w >= h:
-                # Landscape
-                rgb_frame = cv2.resize(rgb_frame, (TARGET_W, TARGET_H), interpolation=cv2.INTER_LINEAR)
-            else:
-                # Portrait
-                rgb_frame = self._resize_with_black_bars(rgb_frame, TARGET_W, TARGET_H)
+            # --- PROCESS BACKGROUND ---
+            if self.bg_mode != "none":
+                frame = self._process_background(frame)
 
-            self._last_frame = rgb_frame
+            # --- COLOR CONVERT ---
+            rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            final_frame = self._place_on_canvas(rgb_frame, TARGET_W, TARGET_H)
+
+            self._last_frame = final_frame
+
+            if self.preview_active:
+                # Calculate preview size preserving aspect ratio
+                # Max preview size: 640x360
+                max_w, max_h = 640, 360
+                h, w = final_frame.shape[:2]
+                scale = min(max_w / w, max_h / h)
+
+                new_w, new_h = int(w * scale), int(h * scale)
+                self.latest_preview_frame = cv2.resize(rgb_frame, (new_w, new_h))
+
             self._frame_count += 1
 
+        except Exception as e:
+            pass
 
+    def _process_background(self, img):
+        try:
+            import cv2
+            import numpy as np
+            import mediapipe as mp
+            import os
+
+            # --- SETUP (Same as before) ---
+            if self.segmentor is None:
+                script_dir = os.path.dirname(os.path.abspath(__file__))
+                model_path = os.path.join(script_dir, "selfie_segmenter.tflite")
+
+                if not os.path.exists(model_path):
+                    if not hasattr(self, "_logged_model_missing"):
+                        print(f"❌ ERROR: Model missing: {model_path}")
+                        self._logged_model_missing = True
+                    return img
+
+                BaseOptions = mp.tasks.BaseOptions
+                VisionRunningMode = mp.tasks.vision.RunningMode
+                ImageSegmenter = mp.tasks.vision.ImageSegmenter
+                ImageSegmenterOptions = mp.tasks.vision.ImageSegmenterOptions
+
+                options = ImageSegmenterOptions(
+                    base_options=BaseOptions(model_asset_path=model_path),
+                    running_mode=VisionRunningMode.IMAGE,
+                    output_category_mask=True
+                )
+                self.segmentor = ImageSegmenter.create_from_options(options)
+
+            # --- PROCESSING ---
+
+            # 1. Resize for AI Speed
+            ai_w, ai_h = 320, 180
+            small_frame = cv2.resize(img, (ai_w, ai_h))
+
+            # 2. Get AI Result
+            mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=cv2.cvtColor(small_frame, cv2.COLOR_BGR2RGB))
+            result = self.segmentor.segment(mp_image)
+
+            # 3. Create Mask
+            small_mask = result.category_mask.numpy_view() > 0.1
+            full_mask = cv2.resize(small_mask.astype(np.float32), (img.shape[1], img.shape[0]),
+                                   interpolation=cv2.INTER_LINEAR)
+            mask_3d = np.stack((full_mask > 0.5,) * 3, axis=-1)
+
+            # --- APPLY EFFECTS (FLIPPED LOGIC) ---
+
+            if self.bg_mode == "blur":
+                blurred = cv2.GaussianBlur(img, (55, 55), 0)
+
+                # ✅ FIX: SWAPPED THE ORDER HERE
+                # BEFORE: np.where(mask_3d, img, blurred) -> Blurred face
+                # NOW:    np.where(mask_3d, blurred, img) -> Clears face, blurs background
+                return np.where(mask_3d, blurred, img)
+
+            elif self.bg_mode == "image" and self.bg_image_path:
+                if self.bg_image_cache is None:
+                    bg = cv2.imread(self.bg_image_path)
+                    if bg is not None:
+                        self.bg_image_cache = cv2.resize(bg, (img.shape[1], img.shape[0]))
+
+                if self.bg_image_cache is not None:
+                    if self.bg_image_cache.shape != img.shape:
+                        self.bg_image_cache = cv2.resize(self.bg_image_cache, (img.shape[1], img.shape[0]))
+
+                    # ✅ FIX: SWAPPED HERE TOO
+                    return np.where(mask_3d, self.bg_image_cache, img)
+
+            return img
 
         except Exception as e:
-            if self._frame_count % 30 == 0:
-                self._put("log", f"❌ Video Error: {e}")
+            if not hasattr(self, "_logged_bg_error"):
+                print(f"DEBUG BG ERROR: {e}")
+                self._logged_bg_error = True
+            return img
 
     def _resize_with_black_bars(self, image, target_w, target_h):
         import cv2
@@ -550,72 +701,64 @@ class UnifiedRemoteServer:
         # Fallback (shouldn't happen normally)
         return resized
 
-    def start_virtual_camera(self):
-        """Start virtual webcam that appears in Zoom/Teams/Discord."""
+    def start_virtual_camera(self, device=None):
         if self._vcam_running:
-            self._put("log", "📹 Virtual camera already running")
+            self._put("log", "⚠️ Virtual Camera is already running.")
             return
 
         try:
             import pyvirtualcam
-            import numpy as np
-            import cv2
 
-            # Create virtual camera (1280x720 @ 30fps)
-            self._vcam = pyvirtualcam.Camera(
-                width=1280,
-                height=720,
-                fps=30,
-                fmt=pyvirtualcam.PixelFormat.RGB
-            )
+            # 1. Try specific device
+            try:
+                print(f"DEBUG: Attempting to start '{device}'...")
+                self._vcam = pyvirtualcam.Camera(
+                    width=self.target_w,
+                    height=self.target_h,
+                    fps=30,
+                    device=device,
+                    fmt=pyvirtualcam.PixelFormat.RGB  # <--- CHANGED FROM BGR TO RGB
+                )
+            except Exception as e:
+                # 2. Fallback to Auto-Detect
+                print(f"DEBUG: Specific device '{device}' failed. Auto-detecting...")
+                self._vcam = pyvirtualcam.Camera(
+                    width=self.target_w,
+                    height=self.target_h,
+                    fps=30,
+                    device=None,
+                    fmt=pyvirtualcam.PixelFormat.RGB  # <--- CHANGED FROM BGR TO RGB
+                )
+
             self._vcam_running = True
+            threading.Thread(target=self._vcam_loop, daemon=True).start()
+            self._put("log", f"📹 VCam Active: {self._vcam.device}")
 
-            self._put("log", f"📹 Virtual Camera Started!")
-            self._put("log", f"📱 Device: {self._vcam.device}")
-            self._put("log", "💡 Select 'OBS Virtual Camera' in Zoom/Teams/Discord")
-            self._put("log", "🎥 Waiting for Android camera stream...")
+        except ImportError:
+            self._put("log", "❌ Critical: Run 'pip install pyvirtualcam'")
+        except Exception as e:
+            self._put("log", "❌ Error: No Virtual Camera found!")
+            print(f"VCAM ERROR: {e}")
+            self._vcam_running = False
 
-            # Start frame sender thread
+
+
+            # Start frame sender thread (Keep this logic the same as before)
             def send_frames():
                 import time
-
-                # Create waiting screen
                 waiting_frame = np.zeros((720, 1280, 3), dtype=np.uint8)
-                cv2.putText(
-                    waiting_frame,
-                    "Waiting for Android Camera...",
-                    (250, 350),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    1.2,
-                    (255, 255, 255),
-                    2
-                )
-                cv2.putText(
-                    waiting_frame,
-                    "Start Camera on your Android device",
-                    (280, 400),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    0.8,
-                    (200, 200, 200),
-                    1
-                )
+                cv2.putText(waiting_frame, "Waiting for Phone...", (350, 350), cv2.FONT_HERSHEY_SIMPLEX, 1.2,
+                            (255, 255, 255), 2)
 
                 while self._vcam_running:
                     try:
                         if self._last_frame is not None:
-                            # Send Android camera frame
                             self._vcam.send(self._last_frame)
                         else:
-                            # Send waiting screen
                             self._vcam.send(waiting_frame)
-
-                        time.sleep(1 / 30)  # 30 FPS
-
+                        time.sleep(1 / 30)
                     except Exception as e:
-                        if self._vcam_running:
-                            self._put("log", f"⚠️ VCam send error: {e}")
                         break
-
                 self._put("log", "📹 Frame sender stopped")
 
             self._vcam_thread = threading.Thread(target=send_frames, daemon=True)
@@ -623,11 +766,11 @@ class UnifiedRemoteServer:
 
         except ImportError:
             self._put("log", "❌ pyvirtualcam not installed!")
-            self._put("log", "💡 Run: pip install pyvirtualcam opencv-python")
         except Exception as e:
-            self._put("log", f"❌ Virtual camera error: {e}")
-            self._put("log", "💡 Install OBS Studio first (for virtual camera driver)")
-            self._put("log", "   Download: https://obsproject.com/download")
+            self._put("log", f"❌ Camera Error: {e}")
+
+            self._vcam_running = False
+            self._vcam = None
 
     def stop_virtual_camera(self):
         """Stop virtual webcam."""
@@ -640,6 +783,24 @@ class UnifiedRemoteServer:
             self._vcam = None
             self._last_frame = None
             self._put("log", "📹 Virtual camera stopped")
+
+    def _vcam_loop(self):
+        # Update blank frame to match target resolution
+        blank = np.zeros((self.target_h, self.target_w, 3), dtype=np.uint8)
+        while self._vcam_running:
+            try:
+                frame = self._last_frame if self._last_frame is not None else blank
+
+                # Safety check: If frame size mismatches (e.g. resolution changed mid-stream)
+                if frame.shape[1] != self._vcam.width or frame.shape[0] != self._vcam.height:
+                    # Resize to fit
+                    frame = cv2.resize(frame, (self._vcam.width, self._vcam.height))
+
+                self._vcam.send(frame)
+                time.sleep(0.03)
+            except:
+                break
+        self._vcam.close()
 
     def _handle_audio_frame(self, payload):
         """Handle incoming audio frame from microphone."""
@@ -673,7 +834,7 @@ class UnifiedRemoteServer:
                         # We need an OUTPUT device (Python plays TO it)
                         if max_output > 0:
                             # "CABLE Input" is what we play TO. "CABLE Output" is the mic.
-                            if "CABLE Input" in name or "VB-Audio" in name or "Unified_Remote_Mic" in name:
+                            if "CABLE Input" in name or "VB-Audio" in name or "Virtual Audio Driver" in name:
                                 target_device_index = i
                                 device_name = name
                                 break
@@ -896,6 +1057,11 @@ class UnifiedRemoteServer:
             # 50-60 is good. Below 40 looks bad, above 70 adds lag.
             encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), 50]
 
+            # --- MOUSE HIDING LOGIC ---
+            last_mouse_pos = (0, 0)
+            last_move_time = time.time()
+            HIDE_TIMEOUT = 3.0  # Hide pointer after 3 seconds of inactivity
+
             with mss.mss() as sct:
                 # Select Monitor
                 monitor_idx = 1
@@ -917,18 +1083,26 @@ class UnifiedRemoteServer:
                         frame = np.array(sct_img)
                         frame = cv2.cvtColor(frame, cv2.COLOR_BGRA2BGR)
 
-                        # 3. Draw Mouse (OpenCV is faster than PIL)
+                        # 3. Draw Mouse (Only if moved recently)
                         try:
                             mx, my = pyautogui.position()
-                            rel_x = mx - mon_left
-                            rel_y = my - mon_top
+                            current_pos = (mx, my)
 
-                            # Scaling factor if monitor resolution != capture resolution
-                            # (Usually MSS handles this, but raw coords need checking)
-                            if 0 <= rel_x < sct_img.width and 0 <= rel_y < sct_img.height:
-                                # Draw red circle
-                                cv2.circle(frame, (rel_x, rel_y), 8, (0, 0, 255), -1)
-                                cv2.circle(frame, (rel_x, rel_y), 9, (255, 255, 255), 1)
+                            # Check if mouse moved
+                            if current_pos != last_mouse_pos:
+                                last_mouse_pos = current_pos
+                                last_move_time = time.time()
+
+                            # Only draw if the timeout hasn't passed
+                            if time.time() - last_move_time < HIDE_TIMEOUT:
+                                rel_x = mx - mon_left
+                                rel_y = my - mon_top
+
+                                # Scaling check
+                                if 0 <= rel_x < sct_img.width and 0 <= rel_y < sct_img.height:
+                                    # Draw red circle
+                                    cv2.circle(frame, (rel_x, rel_y), 8, (0, 0, 255), -1)
+                                    cv2.circle(frame, (rel_x, rel_y), 9, (255, 255, 255), 1)
                         except:
                             pass
 
@@ -945,7 +1119,6 @@ class UnifiedRemoteServer:
                             self._send_video_frame(b64_data)
 
                         # 7. FPS Limiter (Cap at 30 to save CPU for Network)
-                        # Don't go unlimited; it floods the router buffer and increases latency.
                         elapsed = time.time() - start_time
                         if elapsed < 0.033:
                             time.sleep(0.033 - elapsed)
@@ -976,12 +1149,7 @@ class UnifiedRemoteServer:
             self._put("log", f"❌ Send frame error: {e}")
 
     def start_audio_streaming(self):
-        """Robust audio streaming:
-           - Keeps worker alive even with 0 clients (avoids start/stop thrash)
-           - Fuzzy loopback matching so Bluetooth/HDMI/USB choose correctly
-           - Uses native sample rate and sends rate/channels to clients
-           - Detects loopback disappearance and restarts gracefully
-        """
+
         if self._streaming_audio:
             self._put("log", "🔊 Audio already streaming")
             return
@@ -1260,30 +1428,72 @@ class UnifiedRemoteServer:
             pass
 
     def _handle_mouse_click(self, payload):
-        """Handle mouse click using Windows native API."""
+        """
+        Handle mouse click, down, and up events using Windows native API.
+        Supports Dragging.
+        """
         try:
             import ctypes
+            import json
+
             event = json.loads(payload)
             button_id = event.get("button", 0)
 
+            # Check for explicit action (default to 'click' for backward compatibility)
+            # The Android app now sends "down" or "up" for dragging
+            action = event.get("action", "click")
+
+            # Windows Constants
+            MOUSEEVENTF_LEFTDOWN = 0x0002
+            MOUSEEVENTF_LEFTUP = 0x0004
+            MOUSEEVENTF_RIGHTDOWN = 0x0008
+            MOUSEEVENTF_RIGHTUP = 0x0010
+            MOUSEEVENTF_MIDDLEDOWN = 0x0020
+            MOUSEEVENTF_MIDDLEUP = 0x0040
+
             if platform.system() == "Windows":
-                # Direct Windows API calls
-                if button_id == 0:  # Left click
-                    ctypes.windll.user32.mouse_event(0x0002, 0, 0, 0, 0)  # MOUSEEVENTF_LEFTDOWN
-                    ctypes.windll.user32.mouse_event(0x0004, 0, 0, 0, 0)  # MOUSEEVENTF_LEFTUP
-                elif button_id == 1:  # Right click
-                    ctypes.windll.user32.mouse_event(0x0008, 0, 0, 0, 0)  # MOUSEEVENTF_RIGHTDOWN
-                    ctypes.windll.user32.mouse_event(0x0010, 0, 0, 0, 0)  # MOUSEEVENTF_RIGHTUP
-                elif button_id == 2:  # Middle click
-                    ctypes.windll.user32.mouse_event(0x0020, 0, 0, 0, 0)  # MOUSEEVENTF_MIDDLEDOWN
-                    ctypes.windll.user32.mouse_event(0x0040, 0, 0, 0, 0)  # MOUSEEVENTF_MIDDLEUP
+                # --- LEFT BUTTON ---
+                if button_id == 0:
+                    if action == "down":
+                        ctypes.windll.user32.mouse_event(MOUSEEVENTF_LEFTDOWN, 0, 0, 0, 0)
+                    elif action == "up":
+                        ctypes.windll.user32.mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, 0)
+                    else:  # "click" (Full press)
+                        ctypes.windll.user32.mouse_event(MOUSEEVENTF_LEFTDOWN, 0, 0, 0, 0)
+                        ctypes.windll.user32.mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, 0)
+
+                # --- RIGHT BUTTON ---
+                elif button_id == 1:
+                    if action == "down":
+                        ctypes.windll.user32.mouse_event(MOUSEEVENTF_RIGHTDOWN, 0, 0, 0, 0)
+                    elif action == "up":
+                        ctypes.windll.user32.mouse_event(MOUSEEVENTF_RIGHTUP, 0, 0, 0, 0)
+                    else:
+                        ctypes.windll.user32.mouse_event(MOUSEEVENTF_RIGHTDOWN, 0, 0, 0, 0)
+                        ctypes.windll.user32.mouse_event(MOUSEEVENTF_RIGHTUP, 0, 0, 0, 0)
+
+                # --- MIDDLE BUTTON ---
+                elif button_id == 2:
+                    if action == "down":
+                        ctypes.windll.user32.mouse_event(MOUSEEVENTF_MIDDLEDOWN, 0, 0, 0, 0)
+                    elif action == "up":
+                        ctypes.windll.user32.mouse_event(MOUSEEVENTF_MIDDLEUP, 0, 0, 0, 0)
+                    else:
+                        ctypes.windll.user32.mouse_event(MOUSEEVENTF_MIDDLEDOWN, 0, 0, 0, 0)
+                        ctypes.windll.user32.mouse_event(MOUSEEVENTF_MIDDLEUP, 0, 0, 0, 0)
+
             else:
-                # Fallback
+                # Fallback for Linux/Mac (PyAutoGUI)
                 import pyautogui
                 button_map = {0: "left", 1: "right", 2: "middle"}
                 button = button_map.get(button_id, "left")
-                pyautogui.click(button=button)
 
+                if action == "down":
+                    pyautogui.mouseDown(button=button)
+                elif action == "up":
+                    pyautogui.mouseUp(button=button)
+                else:
+                    pyautogui.click(button=button)
 
         except Exception as e:
             self._put("log", f"❌ Mouse click error: {e}")
@@ -1319,6 +1529,34 @@ class UnifiedRemoteServer:
             key = event.get("key", "")
             modifiers = event.get("modifiers", [])
 
+            key_lower = key.lower()
+
+            # --- BRIGHTNESS HANDLER (ADD THIS BLOCK) ---
+            if key_lower in ["brightnessup", "brightnessdown"]:
+                try:
+                    import screen_brightness_control as sbc
+
+                    # Get current brightness (returns list, get first display)
+                    current_list = sbc.get_brightness()
+                    if current_list:
+                        current = current_list[0]
+
+                        if key_lower == "brightnessup":
+                            new_val = min(100, current + 10)  # Increase by 10%
+                        else:
+                            new_val = max(0, current - 10)  # Decrease by 10%
+
+                        sbc.set_brightness(new_val)
+                        self._put("log", f"💡 Brightness set to {new_val}%")
+                    return  # Exit function, we are done
+                except ImportError:
+                    self._put("log", "❌ Install 'screen-brightness-control' for brightness support")
+                    return
+                except Exception as e:
+                    self._put("log", f"❌ Brightness Error: {e}")
+                    return
+
+
             # --- FIX: Auto-Shift for Uppercase Letters ---
             # If Android sends "A", we treat it as "Shift + a"
             # This ensures Caps works regardless of the PC's actual Caps Lock state
@@ -1348,7 +1586,10 @@ class UnifiedRemoteServer:
                     '←': 0x25, '↑': 0x26, '→': 0x27, '↓': 0x28,
                     # Modifiers
                     'shift': 0x10, 'ctrl': 0x11, 'alt': 0x12, 'meta': 0x5B,
-                    'win': 0x5B, 'menu': 0x5D
+                    'win': 0x5B, 'menu': 0x5D,'brightnessup': None,
+                    # Windows doesn't always have a direct VK for this via keybd_event easily
+                    'brightnessdown': None,
+                    # but some laptops use special driver keys.
                 }
 
                 # Normalize key input for lookup
@@ -1574,20 +1815,18 @@ class UDPMouseServer(threading.Thread):
         super().__init__()
         self.port = port
         self.running = True
-        self.sock = None  # Initialize as None
+        self.sock = None
 
     def run(self):
         import ctypes
-
         try:
             self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            # CRITICAL: Allow port reuse
             self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             self.sock.setblocking(False)
             self.sock.bind(("0.0.0.0", self.port))
             print(f"🚀 UDP Mouse Server listening on port {self.port}")
         except Exception as e:
-            print(f"❌ UDP Bind Failed: {e}")
+            print(f"❌ UDP Bind Failed on {self.port}: {e}")
             self.running = False
             return
 
@@ -1599,27 +1838,143 @@ class UDPMouseServer(threading.Thread):
                 if len(parts) == 2:
                     dx = int(parts[0])
                     dy = int(parts[1])
+                    # Windows fast movement
                     ctypes.windll.user32.mouse_event(0x0001, dx, dy, 0, 0)
             except BlockingIOError:
                 time.sleep(0.001)
             except Exception:
                 pass
 
-        # Cleanup when loop ends
         if self.sock:
             self.sock.close()
 
     def stop(self):
         self.running = False
-        # Do NOT close socket here, let the loop finish and close it safely
+
+
+class SettingsDialog(tk.Toplevel):
+    def __init__(self, parent, prefs, callback_save):
+        super().__init__(parent)
+        self.title("Settings")
+        self.geometry("400x550")
+        self.configure(bg="#2d2d2d")
+        self.prefs = prefs
+        self.callback_save = callback_save
+        self.transient(parent)  # Keep on top of main window
+
+        # Style
+        lbl_style = {"bg": "#2d2d2d", "fg": "white", "font": ("Segoe UI", 10)}
+
+        # --- 1. GENERAL SETTINGS ---
+        frame_gen = tk.LabelFrame(self, text="General", bg="#2d2d2d", fg="#00e676", font=("Segoe UI", 10, "bold"))
+        frame_gen.pack(fill="x", padx=10, pady=10)
+
+        # Auto-start PC
+        self.var_autostart_pc = tk.BooleanVar(value=prefs.get("autostart_pc", False))
+        tk.Checkbutton(frame_gen, text="Start app when computer starts", variable=self.var_autostart_pc,
+                       bg="#2d2d2d", fg="white", selectcolor="#2d2d2d", activebackground="#2d2d2d").pack(anchor="w",
+                                                                                                         padx=5)
+
+        # Auto-start Server
+        self.var_autostart_server = tk.BooleanVar(value=prefs.get("autostart_server", False))
+        tk.Checkbutton(frame_gen, text="Auto-start server when app opens", variable=self.var_autostart_server,
+                       bg="#2d2d2d", fg="white", selectcolor="#2d2d2d", activebackground="#2d2d2d").pack(anchor="w",
+                                                                                                         padx=5)
+
+        # Admin Rights
+        self.var_admin = tk.BooleanVar(value=prefs.get("run_as_admin", False))
+        tk.Checkbutton(frame_gen, text="Request Admin Rights (Task Manager fix)", variable=self.var_admin,
+                       bg="#2d2d2d", fg="white", selectcolor="#2d2d2d", activebackground="#2d2d2d").pack(anchor="w",
+                                                                                                         padx=5)
+
+        # Port
+        tk.Frame(frame_gen, height=1, bg="#444").pack(fill="x", pady=5)
+        f_port = tk.Frame(frame_gen, bg="#2d2d2d")
+        f_port.pack(fill="x", padx=5)
+        tk.Label(f_port, text="Server Port:", **lbl_style).pack(side="left")
+        self.ent_port = tk.Entry(f_port, width=8, bg="#3d3d3d", fg="white", insertbackground="white")
+        self.ent_port.insert(0, str(prefs.get("port", 8080)))
+        self.ent_port.pack(side="right")
+
+        # --- 2. ABOUT & UPDATES ---
+        frame_about = tk.LabelFrame(self, text="About", bg="#2d2d2d", fg="#00e676", font=("Segoe UI", 10, "bold"))
+        frame_about.pack(fill="x", padx=10, pady=10)
+
+        tk.Label(frame_about, text=f"Current Version: {APP_VERSION}", **lbl_style).pack(anchor="w", padx=5, pady=2)
+
+        btn_frame = tk.Frame(frame_about, bg="#2d2d2d")
+        btn_frame.pack(fill="x", pady=5)
+
+        tk.Button(btn_frame, text="GitHub Page", bg="#3d3d3d", fg="white", relief="flat",
+                  command=lambda: webbrowser.open(GITHUB_URL)).pack(side="left", padx=5)
+
+        tk.Button(btn_frame, text="Check for Updates", bg="#2196f3", fg="white", relief="flat",
+                  command=self.check_update).pack(side="right", padx=5)
+
+        # --- SAVE BUTTONS ---
+        frame_b = tk.Frame(self, bg="#2d2d2d")
+        frame_b.pack(side="bottom", fill="x", pady=15)
+        tk.Button(frame_b, text="Save & Close", bg="#00e676", fg="black", font=("Segoe UI", 10, "bold"),
+                  command=self.save_and_close).pack(pady=5, ipadx=20)
+
+    def check_update(self):
+        """Simple check against GitHub releases API."""
+        try:
+            api_url = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
+            req = urllib.request.Request(api_url, headers={'User-Agent': 'Mozilla/5.0'})
+            with urllib.request.urlopen(req) as response:
+                data = json.load(response)
+                latest_tag = data.get("tag_name", "").replace("v", "")
+
+                # Basic string compare (ideally use packaging.version)
+                if latest_tag != APP_VERSION:
+                    ans = messagebox.askyesno("Update Available",
+                                              f"New version {latest_tag} is available!\n\nOpen download page?")
+                    if ans:
+                        webbrowser.open(data.get("html_url", GITHUB_URL))
+                else:
+                    messagebox.showinfo("Up to Date", "You are using the latest version.")
+        except Exception as e:
+            messagebox.showerror("Error", f"Could not check for updates:\n{e}")
+
+    def save_and_close(self):
+        # Validate Port
+        try:
+            port = int(self.ent_port.get())
+            if not (1024 <= port <= 65535): raise ValueError
+        except:
+            messagebox.showerror("Invalid Port", "Port must be a number between 1024 and 65535")
+            return
+
+        new_prefs = {
+            "autostart_pc": self.var_autostart_pc.get(),
+            "autostart_server": self.var_autostart_server.get(),
+            "run_as_admin": self.var_admin.get(),
+            "port": port
+        }
+        self.callback_save(new_prefs)
+        self.destroy()
 
 
 class ServerGUI:
     def __init__(self):
         self.root = tk.Tk()
-        self.root.title("Use As Server")
+        self.root.title(f"Use As Server v{APP_VERSION}")
         self.root.geometry("600x850")
-        self.root.configure(bg=COLORS["bg"])
+        self.root.configure(bg="#1e1e1e")
+
+        # Tray Icon variable
+        self.tray_icon = None
+
+        # --- LOAD PREFERENCES ---
+        self.prefs = {
+            "autostart_pc": False,
+            "autostart_server": False,
+            "run_as_admin": False,
+            "port": 8080
+        }
+        self.load_preferences()
+
 
         try:
             if Path("icon.ico").exists():
@@ -1633,15 +1988,112 @@ class ServerGUI:
 
         self.setup_ui()
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
+
+        # --- AUTO START SERVER LOGIC ---
+        if self.prefs["autostart_server"]:
+            self.root.after(1000, self.toggle_server)
+
         self.root.after(100, self.process_queue)
+        self.root.after(50, self.update_preview)
+
+    def create_default_icon(self):
+        """Generates a simple green box icon if icon.ico is missing."""
+        width = 64
+        height = 64
+        color1 = "#00e676"
+        color2 = "#1e1e1e"
+        image = Image.new('RGB', (width, height), color1)
+        dc = ImageDraw.Draw(image)
+        dc.rectangle((width // 4, height // 4, 3 * width // 4, 3 * height // 4), fill=color2)
+        return image
+
+    def minimize_to_tray(self):
+        """Hide window and show system tray icon."""
+        self.root.withdraw()  # Hide the main window
+
+        image = None
+        try:
+            if Path("icon.ico").exists():
+                image = Image.open("icon.ico")
+            else:
+                image = self.create_default_icon()
+        except:
+            image = self.create_default_icon()
+
+        # Define Tray Menu
+        menu = (
+            item('Restore', self.restore_from_tray, default=True),
+            item('Stop Server & Quit', self.quit_app)
+        )
+
+        self.tray_icon = pystray.Icon("UseAsServer", image, "Use As Server", menu)
+        # Run detached so it doesn't block the Tkinter loop
+        self.tray_icon.run_detached()
+
+    def restore_from_tray(self, icon=None, item=None):
+        """Stop tray icon and show window."""
+        if self.tray_icon:
+            self.tray_icon.stop()
+            self.tray_icon = None
+
+        self.root.after(0, self.root.deiconify)  # Show window safely
+
+    def quit_app(self, icon=None, item=None):
+        """Clean shutdown from tray."""
+        if self.tray_icon:
+            self.tray_icon.stop()
+        self.root.after(0, self.on_closing)
+
+    def load_preferences(self):
+        try:
+            if SETTINGS_FILE.exists():
+                with open(SETTINGS_FILE, 'r') as f:
+                    data = json.load(f)
+                    self.prefs.update(data)
+        except Exception as e:
+            print(f"Error loading prefs: {e}")
+
+    def save_preferences(self, new_prefs=None):
+        """Save JSON and Apply System Changes (Registry)."""
+        if new_prefs:
+            self.prefs = new_prefs
+
+        # 1. Save JSON
+        try:
+            SETTINGS_FILE.parent.mkdir(parents=True, exist_ok=True)
+            with open(SETTINGS_FILE, 'w') as f:
+                json.dump(self.prefs, f, indent=4)
+        except Exception as e:
+            print(f"Error saving json: {e}")
+
+        # 2. Apply Windows Registry Changes (Auto-start PC)
+        if sys.platform == "win32":
+            try:
+                key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\Run", 0,
+                                     winreg.KEY_SET_VALUE)
+                app_path = sys.executable if getattr(sys, 'frozen', False) else f'"{sys.executable}" "{__file__}"'
+
+                if self.prefs["autostart_pc"]:
+                    winreg.SetValueEx(key, "UseAsServer", 0, winreg.REG_SZ, app_path)
+                else:
+                    try:
+                        winreg.DeleteValue(key, "UseAsServer")
+                    except FileNotFoundError:
+                        pass  # Key didn't exist, which is fine
+                winreg.CloseKey(key)
+            except Exception as e:
+                print(f"Registry Error: {e}")
+
+    def open_settings(self):
+        SettingsDialog(self.root, self.prefs, self.save_preferences)
 
     def setup_ui(self):
         style = ttk.Style()
         style.theme_use('clam')
-        style.configure("TNotebook", background=COLORS["bg"], borderwidth=0)
-        style.configure("TNotebook.Tab", background=COLORS["secondary"], foreground=COLORS["fg"], padding=[15, 5])
-        style.map("TNotebook.Tab", background=[("selected", COLORS["accent"])], foreground=[("selected", "#000")])
-        style.configure("TFrame", background=COLORS["bg"])
+        style.configure("TNotebook", background="#1e1e1e", borderwidth=0)
+        style.configure("TNotebook.Tab", background="#2d2d2d", foreground="white", padding=[15, 5])
+        style.map("TNotebook.Tab", background=[("selected", "#00e676")], foreground=[("selected", "#000")])
+        style.configure("TFrame", background="#1e1e1e")
 
         self.notebook = ttk.Notebook(self.root)
         self.notebook.pack(fill='both', expand=True, padx=10, pady=10)
@@ -1654,134 +2106,352 @@ class ServerGUI:
         self.notebook.add(self.tab_sharing, text="  Sharing  ")
         self.build_sharing(self.tab_sharing)
 
-    def build_dashboard(self, parent):
-        header = tk.Frame(parent, bg=COLORS["bg"])
-        header.pack(fill='x', pady=20)
-        tk.Label(header, text="Use As Server", font=("Segoe UI", 24, "bold"), bg=COLORS["bg"], fg=COLORS["fg"]).pack()
+        self.tab_cam = ttk.Frame(self.notebook)
+        self.notebook.add(self.tab_cam, text=" 📷 Camera Studio ")
+        self.build_camera_studio()
 
-        self.status_label = tk.Label(header, text="🔴 Offline", font=("Segoe UI", 10), bg=COLORS["secondary"],
-                                     fg=COLORS["error"], padx=10, pady=5)
+    def build_camera_studio(self):
+        p = self.tab_cam
+
+        # --- LEFT: CONTROLS ---
+        left_panel = tk.Frame(p, bg="#1e1e1e", width=250)
+        left_panel.pack(side="left", fill="y", padx=10, pady=10)
+
+        # 1. Output Resolution
+        lf_res = tk.LabelFrame(left_panel, text="Resolution / Aspect Ratio", bg="#1e1e1e", fg="white")
+        lf_res.pack(fill="x", pady=5)
+
+        self.combo_res = ttk.Combobox(lf_res, values=[
+            "1280x720 (16:9) - Standard",
+            "1920x1080 (16:9) - Full HD",
+            "800x600 (4:3) - Old School",
+            "1024x768 (4:3) - Standard 4:3",
+            "720x720 (1:1) - Square"
+        ], state="readonly")
+        self.combo_res.current(0)
+        self.combo_res.pack(fill="x", padx=5, pady=5)
+        self.combo_res.bind("<<ComboboxSelected>>", self.change_aspect_ratio)
+
+        # 2. Background Settings
+        lf_bg = tk.LabelFrame(left_panel, text="Background Effects", bg="#1e1e1e", fg="white")
+        lf_bg.pack(fill="x", pady=5)
+
+        self.var_bg = tk.StringVar(value="none")
+        tk.Radiobutton(lf_bg, text="None", variable=self.var_bg, value="none",
+                       bg="#1e1e1e", fg="white", selectcolor="#2d2d2d", command=self.update_cam_settings).pack(
+            anchor="w")
+        tk.Radiobutton(lf_bg, text="Blur", variable=self.var_bg, value="blur",
+                       bg="#1e1e1e", fg="white", selectcolor="#2d2d2d", command=self.update_cam_settings).pack(
+            anchor="w")
+        tk.Radiobutton(lf_bg, text="Replace Image", variable=self.var_bg, value="image",
+                       bg="#1e1e1e", fg="white", selectcolor="#2d2d2d", command=self.update_cam_settings).pack(
+            anchor="w")
+
+        tk.Button(lf_bg, text="Select Image...", bg="#3d3d3d", fg="white",
+                  command=self.select_bg_image).pack(fill="x", padx=5, pady=5)
+
+        # 3. Picture Settings
+        lf_pic = tk.LabelFrame(left_panel, text="Picture Adjust", bg="#1e1e1e", fg="white")
+        lf_pic.pack(fill="x", pady=5)
+
+        self.var_mirror = tk.BooleanVar(value=False)
+        self.var_flip = tk.BooleanVar(value=False)
+
+        tk.Checkbutton(lf_pic, text="Mirror Video", variable=self.var_mirror,
+                       bg="#1e1e1e", fg="white", selectcolor="#2d2d2d", command=self.update_cam_settings).pack(
+            anchor="w")
+        tk.Checkbutton(lf_pic, text="Flip Vertically", variable=self.var_flip,
+                       bg="#1e1e1e", fg="white", selectcolor="#2d2d2d", command=self.update_cam_settings).pack(
+            anchor="w")
+
+        tk.Label(lf_pic, text="Brightness Boost", bg="#1e1e1e", fg="gray").pack(anchor="w", pady=(5, 0))
+        self.scale_bright = tk.Scale(lf_pic, from_=-100, to=100, orient="horizontal",
+                                     bg="#1e1e1e", fg="white", highlightthickness=0,
+                                     command=lambda x: self.update_cam_settings())
+        self.scale_bright.set(0)
+        self.scale_bright.pack(fill="x")
+
+        # 4. Output Buttons (UPDATED PART)
+        lf_out = tk.LabelFrame(left_panel, text="Output", bg="#1e1e1e", fg="white")
+        lf_out.pack(fill="x", pady=5)
+
+        # Save these to 'self' variables so we can change text later
+        self.btn_cs_obs = tk.Button(lf_out, text="Start OBS Camera", bg="#9c27b0", fg="white",
+                                    command=lambda: self.toggle_camera("OBS Virtual Camera"))
+        self.btn_cs_obs.pack(fill="x", pady=2)
+
+        self.btn_cs_unity = tk.Button(lf_out, text="Start Unity Camera", bg="#673ab7", fg="white",
+                                      command=lambda: self.toggle_camera("Unity Video Capture"))
+        self.btn_cs_unity.pack(fill="x", pady=2)
+
+        # --- RIGHT: PREVIEW ---
+        right_panel = tk.Frame(p, bg="#000000")
+        right_panel.pack(side="right", fill="both", expand=True, padx=10, pady=10)
+
+        self.lbl_preview = tk.Label(right_panel, text="Waiting for connection...", bg="black", fg="gray")
+        self.lbl_preview.place(relx=0.5, rely=0.5, anchor="center")
+
+    def change_aspect_ratio(self, event=None):
+        if not self.server: return
+
+        # Parse the selection string like "1280x720 (16:9)..."
+        selection = self.combo_res.get()
+        try:
+            res_part = selection.split(" ")[0]  # "1280x720"
+            w_str, h_str = res_part.split("x")
+            new_w = int(w_str)
+            new_h = int(h_str)
+
+            # Update Server Variables
+            self.server.target_w = new_w
+            self.server.target_h = new_h
+
+            print(f"Resolution changed to {new_w}x{new_h}")
+
+            # Restart VCam if running to apply new resolution
+            if self.server._vcam_running:
+                # Find which device was active (OBS or Unity)
+                # We can just restart with the current VCam device if stored,
+                # or just stop it and let user restart.
+                # Auto-restart logic:
+                current_device = self.server._vcam.device
+                self.server.stop_virtual_camera()
+                # Tiny delay to allow cleanup
+                self.root.after(500, lambda: self.server.start_virtual_camera(current_device))
+
+        except Exception as e:
+            print(f"Error changing resolution: {e}")
+
+
+
+    def build_dashboard(self, parent):
+        # Header
+        header = tk.Frame(parent, bg="#1e1e1e")
+        header.pack(fill='x', pady=20)
+
+        tk.Label(header, text="Use As Server", font=("Segoe UI", 24, "bold"), bg="#1e1e1e", fg="white").pack(side="left", padx=20)
+
+        # BUTTONS FRAME (Settings + Tray)
+        btn_box = tk.Frame(header, bg="#1e1e1e")
+        btn_box.pack(side="right", padx=20)
+
+        # 1. Tray Button (NEW)
+        tk.Button(btn_box, text="⬇️Minimize to Tray", font=("Segoe UI", 9), bg="#3d3d3d", fg="white",
+                  relief='flat', command=self.minimize_to_tray).pack(side="left", padx=5)
+
+        # 2. Settings Button
+        tk.Button(btn_box, text="⚙️ Settings", font=("Segoe UI", 9), bg="#3d3d3d", fg="white",
+                  relief='flat', command=self.open_settings).pack(side="left", padx=5)
+
+        # Status
+        self.status_label = tk.Label(parent, text="🔴 Offline", font=("Segoe UI", 10), bg="#2d2d2d",
+                                     fg="#cf6679", padx=10, pady=5)
         self.status_label.pack(pady=10)
 
         self.ip_var = tk.StringVar(value="Not Running")
-        tk.Entry(parent, textvariable=self.ip_var, font=("Consolas", 12), justify='center', bg=COLORS["secondary"],
-                 fg=COLORS["accent"], relief='flat', state='readonly').pack(pady=5, ipadx=10, ipady=5)
+        tk.Entry(parent, textvariable=self.ip_var, font=("Consolas", 12), justify='center', bg="#2d2d2d",
+                 fg="#00e676", relief='flat', state='readonly').pack(pady=5, ipadx=10, ipady=5)
 
-        self.btn_start = tk.Button(parent, text="START SERVER", font=("Segoe UI", 12, "bold"), bg=COLORS["accent"],
-                                   fg="black", activebackground=COLORS["accent_hover"], relief='flat',
+        self.btn_start = tk.Button(parent, text="START SERVER", font=("Segoe UI", 12, "bold"), bg="#00e676",
+                                   fg="black", activebackground="#00c853", relief='flat',
                                    command=self.toggle_server)
         self.btn_start.pack(pady=15, ipadx=30, ipady=10)
 
-        # Features
-        features_frame = tk.LabelFrame(parent, text="Features", bg=COLORS["bg"], fg=COLORS["fg"],
-                                       font=("Segoe UI", 10, "bold"))
+        # --- FEATURES FRAME ---
+        features_frame = tk.LabelFrame(parent, text="Features", bg="#1e1e1e", fg="white", font=("Segoe UI", 10, "bold"))
         features_frame.pack(fill='x', padx=20, pady=10)
 
-        def mk_btn(txt, cmd, color):
-            return tk.Button(features_frame, text=txt, font=("Segoe UI", 10), bg=color, fg="white", relief='flat',
-                             command=cmd, state='disabled')
+        # Camera Row
+        cam_frame = tk.Frame(features_frame, bg="#1e1e1e")
+        cam_frame.pack(fill='x', pady=2, padx=5)
 
-        self.btn_vcam = mk_btn("📹 Virtual Camera", self.toggle_vcam, "#9c27b0")
-        self.btn_vcam.pack(fill='x', pady=2, padx=5)
+        self.btn_obs = tk.Button(cam_frame, text="Start OBS Camera", font=("Segoe UI", 9), bg="#9c27b0", fg="white",
+                                 relief='flat', command=lambda: self.toggle_camera("OBS Virtual Camera"), state='disabled')
+        self.btn_obs.pack(side="left", fill="x", expand=True, padx=(0, 2))
 
-        self.btn_audio = mk_btn("🔊 Audio Streaming", self.toggle_audio, "#2196f3")
+        self.btn_unity = tk.Button(cam_frame, text="Start Unity Camera", font=("Segoe UI", 9), bg="#673ab7", fg="white",
+                                   relief='flat', command=lambda: self.toggle_camera("Unity Video Capture"), state='disabled')
+        self.btn_unity.pack(side="right", fill="x", expand=True, padx=(2, 0))
+
+        # Audio Button
+        self.btn_audio = tk.Button(features_frame, text="🔊 Audio Streaming", font=("Segoe UI", 10), bg="#2196f3",
+                                   fg="white", relief='flat', command=self.toggle_audio, state='disabled')
         self.btn_audio.pack(fill='x', pady=2, padx=5)
 
-       
-
-        log_frame = tk.LabelFrame(parent, text="Activity Log", bg=COLORS["bg"], fg=COLORS["text_dim"],
-                                  font=("Consolas", 9))
+        # Log
+        log_frame = tk.LabelFrame(parent, text="Activity Log", bg="#1e1e1e", fg="#b0b0b0", font=("Consolas", 9))
         log_frame.pack(fill='both', expand=True, padx=20, pady=10)
-
-        self.log_text = scrolledtext.ScrolledText(log_frame, height=5, bg=COLORS["secondary"], fg=COLORS["fg"],
-                                                  font=("Consolas", 9), relief='flat')
+        self.log_text = scrolledtext.ScrolledText(log_frame, height=5, bg="#2d2d2d", fg="white", font=("Consolas", 9), relief='flat')
         self.log_text.pack(fill='both', expand=True, padx=5, pady=5)
 
     def build_sharing(self, parent):
         # Clipboard
-        frame_clip = tk.LabelFrame(parent, text="Clipboard", bg=COLORS["bg"], fg=COLORS["fg"])
+        frame_clip = tk.LabelFrame(parent, text="Clipboard", bg="#1e1e1e", fg="white", font=("Segoe UI", 10, "bold"))
         frame_clip.pack(fill='x', padx=20, pady=10)
-        self.txt_clip = tk.Text(frame_clip, height=3, bg=COLORS["secondary"], fg=COLORS["fg"], relief='flat')
+        self.txt_clip = tk.Text(frame_clip, height=3, bg="#2d2d2d", fg="white", relief='flat', font=("Consolas", 10))
         self.txt_clip.pack(fill='x', padx=10, pady=5)
-
-        btn_frame = tk.Frame(frame_clip, bg=COLORS["bg"])
+        btn_frame = tk.Frame(frame_clip, bg="#1e1e1e")
         btn_frame.pack(fill='x', padx=10, pady=5)
-        tk.Button(btn_frame, text="Copy to PC", bg=COLORS["secondary"], fg=COLORS["fg"], relief='flat',
-                  command=self.copy_to_pc).pack(side='left')
-        tk.Button(btn_frame, text="Send Text to Phone", bg=COLORS["accent"], fg="black", relief='flat',
-                  command=self.send_text_to_phone).pack(side='right')
+        tk.Button(btn_frame, text="Copy to PC Clipboard", bg="#2d2d2d", fg="white", relief='flat', command=self.copy_to_pc).pack(side='left')
+        tk.Button(btn_frame, text="Send Text to Phone", bg="#00e676", fg="black", relief='flat', command=self.send_text_to_phone).pack(side='right')
 
-        # Files
-        frame_file = tk.LabelFrame(parent, text="File Transfer", bg=COLORS["bg"], fg=COLORS["fg"])
+        # File Transfer
+        frame_file = tk.LabelFrame(parent, text="File Transfer", bg="#1e1e1e", fg="white", font=("Segoe UI", 10, "bold"))
         frame_file.pack(fill='both', expand=True, padx=20, pady=10)
-
-        self.list_files = tk.Listbox(frame_file, bg=COLORS["secondary"], fg=COLORS["fg"], relief='flat')
+        self.list_files = tk.Listbox(frame_file, bg="#2d2d2d", fg="white", relief='flat', font=("Segoe UI", 9))
         self.list_files.pack(fill='both', expand=True, padx=10, pady=5)
         self.list_files.bind("<Double-Button-1>", self.open_file)
-
-        btn_frame_f = tk.Frame(frame_file, bg=COLORS["bg"])
+        btn_frame_f = tk.Frame(frame_file, bg="#1e1e1e")
         btn_frame_f.pack(fill='x', padx=10, pady=10)
+        tk.Button(btn_frame_f, text="📂 Open Received Folder", bg="#2d2d2d", fg="white", relief='flat', command=self.open_folder).pack(side='left')
+        tk.Button(btn_frame_f, text="📤 Send File to Phone", bg="#00e676", fg="black", relief='flat', command=self.send_file_pick).pack(side='right')
 
-        # Button: Open Folder
-        tk.Button(btn_frame_f, text="Open Received Files", bg=COLORS["secondary"], fg=COLORS["fg"], relief='flat',
-                  command=self.open_folder).pack(side='left')
+    def toggle_camera(self, device_name):
+        """Handles logic for both camera buttons."""
+        if not self.server: return
 
-        # Button: Send File (THIS IS THE NEW ONE)
-        tk.Button(btn_frame_f, text="Send File to Phone", bg=COLORS["accent"], fg="black", relief='flat',
-                  command=self.send_file_pick).pack(side='right')
+        if self.server._vcam_running:
+            # STOP CAMERA
+            self.server.stop_virtual_camera()
 
-    # --- ACTIONS ---
+            # Reset BOTH buttons to default state
+            self.btn_obs.config(text="Start OBS Camera", bg="#9c27b0", state="normal")
+            self.btn_unity.config(text="Start Unity Camera", bg="#673ab7", state="normal")
+
+        else:
+            # START CAMERA (Specific Driver)
+            self.server.start_virtual_camera(device_name)
+
+            # Update UI based on success check (allow small delay for thread to set flag)
+            self.root.after(100, lambda: self._update_cam_buttons(device_name))
+
     def toggle_server(self):
         if not self.is_running:
-            self.btn_start.config(text="STOP SERVER", bg=COLORS["error"], fg="white")
+            self.btn_start.config(text="STOP SERVER", bg="#cf6679", fg="white")
             self.status_label.config(text="🟡 Starting...", fg="orange")
             threading.Thread(target=self.start_sequence, daemon=True).start()
         else:
             self.stop_server()
 
+    def update_cam_settings(self):
+        if self.server:
+            self.server.bg_mode = self.var_bg.get()
+            self.server.is_mirrored = self.var_mirror.get()
+            self.server.is_flipped = self.var_flip.get()
+            self.server.brightness_boost = int(self.scale_bright.get())
+
+    def select_bg_image(self):
+        path = filedialog.askopenfilename(filetypes=[("Images", "*.jpg *.png *.jpeg")])
+        if path and self.server:
+            self.server.bg_image_path = path
+            self.server.bg_image_cache = None
+            self.var_bg.set("image")
+            self.update_cam_settings()
+
+    def update_preview(self):
+        if self.server and self.server.latest_preview_frame is not None:
+            try:
+                frame = self.server.latest_preview_frame
+                if frame.shape[0] > 0:
+                    img = Image.fromarray(frame)
+                    imgtk = ImageTk.PhotoImage(image=img)
+                    self.lbl_preview.config(image=imgtk, text="")
+                    self.lbl_preview.image = imgtk
+            except Exception:
+                pass
+        self.root.after(33, self.update_preview)
+
+    def _update_cam_buttons(self, active_device):
+        """Helper to update button states (Color & Text) after starting/stopping."""
+
+        # Check if server and vcam are running
+        is_running = self.server and self.server._vcam_running
+
+        if is_running:
+            # --- CAMERA IS ON ---
+            if active_device == "OBS Virtual Camera":
+                # Update Dashboard Button
+                self.btn_obs.config(text="⏹ Stop OBS", bg="#cf6679")
+                self.btn_unity.config(state="disabled", bg="#424242")
+
+                # Update Camera Studio Button (NEW)
+                if hasattr(self, 'btn_cs_obs'):
+                    self.btn_cs_obs.config(text="⏹ Stop OBS Camera", bg="#cf6679")
+                if hasattr(self, 'btn_cs_unity'):
+                    self.btn_cs_unity.config(state="disabled", bg="#424242")
+
+            else:
+                # Update Dashboard Button
+                self.btn_unity.config(text="⏹ Stop Unity", bg="#cf6679")
+                self.btn_obs.config(state="disabled", bg="#424242")
+
+                # Update Camera Studio Button (NEW)
+                if hasattr(self, 'btn_cs_unity'):
+                    self.btn_cs_unity.config(text="⏹ Stop Unity Camera", bg="#cf6679")
+                if hasattr(self, 'btn_cs_obs'):
+                    self.btn_cs_obs.config(state="disabled", bg="#424242")
+        else:
+            # --- CAMERA IS OFF (Reset All) ---
+            # Dashboard
+            self.btn_obs.config(state="normal", bg="#9c27b0", text="Start OBS Camera")
+            self.btn_unity.config(state="normal", bg="#673ab7", text="Start Unity Camera")
+
+            # Camera Studio
+            if hasattr(self, 'btn_cs_obs'):
+                self.btn_cs_obs.config(state="normal", bg="#9c27b0", text="Start OBS Camera")
+            if hasattr(self, 'btn_cs_unity'):
+                self.btn_cs_unity.config(state="normal", bg="#673ab7", text="Start Unity Camera")
+
     def start_sequence(self):
         try:
-            # Force cleanup of any lingering threads
-            if self.server:
-                self.server.stop()
+            if self.server: self.server.stop()
 
-            self.server = UnifiedRemoteServer(update_queue=self.update_queue)
-
-            # Try to start. If ports are busy, this might log an error.
+            # USE CUSTOM PORT FROM SETTINGS
+            port = self.prefs.get("port", 8080)
+            self.server = UnifiedRemoteServer(port=port, update_queue=self.update_queue)
             self.server.start()
 
-            # Wait up to 2 seconds for the server to actually be ready
-            # We check if the loop is running to confirm success
             for _ in range(20):
                 if self.server._loop and self.server._loop.is_running():
                     ip = self.server.get_local_ip()
-                    self.update_queue.put(("server_ready", ip))
+                    self.update_queue.put(("server_ready", f"{ip}:{port}"))
                     return
                 time.sleep(0.1)
-
-            # If we get here, it failed to start (likely port busy)
-            raise Exception("Server timed out. Port 8080/8081 might be busy. Wait 5s and try again.")
-
+            raise Exception(f"Server timed out on port {port}.")
         except Exception as e:
             self.update_queue.put(("error", str(e)))
-            # Ensure we reset UI state
-            if self.server:
-                self.server.stop()
+            if self.server: self.server.stop()
 
+    # ... (Add existing helper methods: stop_server, toggle_vcam, etc. here) ...
+
+    # Copied helpers for completeness of the GUI block (abbreviated)
     def stop_server(self):
-        if self.server: self.server.stop()
-        self.is_running = False
-        self.btn_start.config(text="START SERVER", bg=COLORS["accent"], fg="black")
-        self.status_label.config(text="🔴 Offline", fg=COLORS["error"])
-        self.ip_var.set("Not Running")
-        for btn in [self.btn_vcam, self.btn_audio, self.btn_display]:
-            btn.config(state='disabled', bg=COLORS["btn_disabled"])
+        if self.server:
+            self.server.stop()
 
-    # --- FEATURE TOGGLES ---
+        self.is_running = False
+        self.btn_start.config(text="START SERVER", bg="#00e676", fg="black")
+        self.status_label.config(text="🔴 Offline", fg="#cf6679")
+        self.ip_var.set("Not Running")
+
+        # --- DISABLE DASHBOARD BUTTONS ---
+        if hasattr(self, 'btn_obs'):
+            self.btn_obs.config(state='disabled', bg="#424242", text="Start OBS Camera")
+        if hasattr(self, 'btn_unity'):
+            self.btn_unity.config(state='disabled', bg="#424242", text="Start Unity Camera")
+        if hasattr(self, 'btn_audio'):
+            self.btn_audio.config(state='disabled', bg="#424242", text="🔊 Audio Streaming")
+
+        # --- DISABLE CAMERA STUDIO BUTTONS (NEW) ---
+        if hasattr(self, 'btn_cs_obs'):
+            self.btn_cs_obs.config(state='disabled', bg="#424242", text="Start OBS Camera")
+        if hasattr(self, 'btn_cs_unity'):
+            self.btn_cs_unity.config(state='disabled', bg="#424242", text="Start Unity Camera")
+
     def toggle_vcam(self):
         if not self.server._vcam_running:
             self.server.start_virtual_camera()
-            self.btn_vcam.config(text="⏹ Stop Camera", bg=COLORS["error"])
+            self.btn_vcam.config(text="⏹ Stop Camera", bg="#cf6679")
         else:
             self.server.stop_virtual_camera()
             self.btn_vcam.config(text="📹 Virtual Camera", bg="#9c27b0")
@@ -1789,107 +2459,94 @@ class ServerGUI:
     def toggle_audio(self):
         if not self.server._streaming_audio:
             self.server.start_audio_streaming()
-            self.btn_audio.config(text="🔇 Stop Audio", bg=COLORS["error"])
+            self.btn_audio.config(text="🔇 Stop Audio", bg="#cf6679")
         else:
             self.server.stop_audio_streaming()
             self.btn_audio.config(text="🔊 Audio Streaming", bg="#2196f3")
 
-    def toggle_display(self):
-        self.log("Display toggle clicked")
-
-    # --- FILE & TEXT LOGIC ---
     def send_text_to_phone(self):
         text = self.txt_clip.get("1.0", tk.END).strip()
-        if text and self.server:
-            self.server.send_to_android("clipboard_text", text)
-            self.log("Sent text to phone")
+        if text and self.server: self.server.send_to_android("clipboard_text", text)
 
     def send_file_pick(self):
-        """Open file dialog and send selected files (Multiple supported)."""
-        if not self.server or not self.is_running:
-            messagebox.showwarning("Not Connected", "Please start the server first.")
-            return
+        if not self.server or not self.is_running: return
+        paths = filedialog.askopenfilenames()
+        if paths: threading.Thread(target=self.process_multiple_files, args=(paths,), daemon=True).start()
 
-        # CHANGE: Use askopenfilenames (Plural) to select multiple
-        file_paths = filedialog.askopenfilenames()
-
-        if file_paths:
-            # Run the loop in a background thread
-            threading.Thread(
-                target=self.process_multiple_files,
-                args=(file_paths,),
-                daemon=True
-            ).start()
-
-    def process_multiple_files(self, file_paths):
-        """Queue multiple files safely."""
-        total = len(file_paths)
-        for i, file_path in enumerate(file_paths):
-            self.log(f"--- Queueing File {i + 1}/{total} ---")
-
-            # This function uses a Lock, so it will wait if a transfer is busy.
-            # It sends File 1, finishes, releases lock, then sends File 2.
-            self.server.send_file_to_phone_thread(file_path)
-
-            # Tiny cool-down between files to let Android save final buffer
+    def process_multiple_files(self, paths):
+        for p in paths:
+            self.server.send_file_to_phone_thread(p)
             time.sleep(0.5)
 
     def copy_to_pc(self):
-        text = self.txt_clip.get("1.0", tk.END).strip()
-        pyperclip.copy(text)
-        self.log("Copied to PC Clipboard")
+        pyperclip.copy(self.txt_clip.get("1.0", tk.END).strip())
 
     def open_folder(self):
         try:
             SAVE_DIR.mkdir(parents=True, exist_ok=True)
-            if platform.system() == "Windows":
-                os.startfile(SAVE_DIR)
-            else:
-                subprocess.Popen(["xdg-open", str(SAVE_DIR)])
-        except Exception as e:
-            self.log(f"❌ Could not open folder: {e}")
+            os.startfile(SAVE_DIR)
+        except:
+            pass
 
     def open_file(self, event):
-        selection = self.list_files.curselection()
-        if selection:
-            fname = self.list_files.get(selection[0])
-            path = SAVE_DIR / fname
+        sel = self.list_files.curselection()
+        if sel:
             try:
-                if platform.system() == "Windows": os.startfile(path)
+                os.startfile(SAVE_DIR / self.list_files.get(sel[0]))
             except:
                 pass
 
-    # --- QUEUE & LOGGING ---
     def process_queue(self):
         try:
             while True:
                 kind, data = self.update_queue.get_nowait()
+
                 if kind == "log":
                     self.log(data)
+
                 elif kind == "server_ready":
                     self.is_running = True
-                    self.status_label.config(text="🟢 Online", fg=COLORS["accent"])
-                    self.ip_var.set(f"ws://{data}:8080")
+                    self.status_label.config(text="🟢 Online", fg="#00e676")
+                    self.ip_var.set(f"ws://{data}")
                     self.log(f"Server ready on {data}")
-                    self.btn_vcam.config(state='normal', bg="#9c27b0")
-                    self.btn_audio.config(state='normal', bg="#2196f3")
-                    self.btn_display.config(state='normal', bg="#00bcd4")
-                elif kind == "clipboard":
-                    self.txt_clip.delete("1.0", tk.END)
-                    self.txt_clip.insert("1.0", data)
-                elif kind == "file_received":
-                    # Update file list if file is in the SAVE_DIR
-                    path = Path(data)
-                    self.list_files.insert(0, path.name)
+
+                    # Enable buttons
+                    if hasattr(self, 'btn_obs'): self.btn_obs.config(state='normal', bg="#9c27b0")
+                    if hasattr(self, 'btn_unity'): self.btn_unity.config(state='normal', bg="#673ab7")
+                    if hasattr(self, 'btn_audio'): self.btn_audio.config(state='normal', bg="#2196f3")
+
                 elif kind == "error":
-                    self.log(f"❌ Error: {data}")
-                    messagebox.showerror("Server Error", f"Failed to start server:\n{data}")
-                    # Reset UI to stopped state
-                    self.is_running = False
-                    self.btn_start.config(text="START SERVER", bg=COLORS["accent"], fg="black")
-                    self.status_label.config(text="🔴 Offline", fg=COLORS["error"])
-        except:
+                    self.log(f"Error: {data}")
+                    messagebox.showerror("Error", data)
+                    self.stop_server()
+
+                # --- FIX: ADD MISSING HANDLERS HERE ---
+
+                elif kind == "clipboard":
+                    # Update the clipboard text box
+                    self.txt_clip.delete("1.0", tk.END)
+                    self.txt_clip.insert(tk.END, data)
+                elif kind == "audio_status":
+                    is_on = data  # True or False
+                    if is_on:
+                        self.btn_audio.config(text="🔇 Stop Audio", bg="#cf6679")
+                    else:
+                        self.btn_audio.config(text="🔊 Audio Streaming", bg="#2196f3")
+
+                elif kind == "file_received":
+                    # Add filename to the listbox
+                    # data is the full path, we just want the filename for the list
+                    import os
+                    filename = os.path.basename(data)
+                    self.list_files.insert(tk.END, filename)
+                    self.list_files.see(tk.END)  # Scroll to bottom
+
+        except queue.Empty:
             pass
+        except Exception as e:
+            print(f"Queue Error: {e}")
+
+        # Keep checking the queue
         self.root.after(200, self.process_queue)
 
     def log(self, msg):
@@ -1903,34 +2560,45 @@ class ServerGUI:
     def run(self):
         self.root.mainloop()
 
+
 # ============================================
 # MAIN
 # ============================================
 
 if __name__ == "__main__":
-    # Fix for asyncio on Windows
     import multiprocessing
 
     multiprocessing.freeze_support()
-    if platform.system() == "Windows":
-        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
-
-    # Add pyautogui to requirements
+    # 1. Check if we need Admin Rights based on previous settings
+    must_be_admin = False
     try:
-        import pyautogui
-        import websockets
-    except ImportError:
-        print("="*50)
-        print("ERROR: Missing required libraries.")
-        print("Please run: pip install websockets pyautogui")
-        print("="*50)
-        sys.exit(1)
-    import threading
+        if SETTINGS_FILE.exists():
+            with open(SETTINGS_FILE, 'r') as f:
+                data = json.load(f)
+                must_be_admin = data.get("run_as_admin", False)
+    except:
+        pass
 
-    for thread in threading.enumerate():
-        if thread.name != "MainThread":
-            print(f"⚠️ Warning: Found lingering thread {thread.name}")
+    # 2. Check if we ARE Admin
+    is_admin = False
+    try:
+        is_admin = ctypes.windll.shell32.IsUserAnAdmin()
+    except:
+        pass
+
+    # 3. If we need admin but don't have it -> Restart as Admin
+    if must_be_admin and not is_admin:
+        print("⚠️ Restarting as Administrator...")
+        # Re-run the script with Admin privileges
+        ctypes.windll.shell32.ShellExecuteW(
+            None, "runas", sys.executable, __file__, None, 1
+        )
+        sys.exit()
+
+    # 4. Normal Startup
+    if sys.platform == "win32":
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
     app = ServerGUI()
     app.run()
