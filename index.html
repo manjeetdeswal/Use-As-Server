@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Use As - PC Server Download</title>
+    <title>Use As - PC Server & User Guide</title>
     <style>
         :root {
             --primary: #00E676;       /* Android Green */
@@ -23,6 +23,7 @@
             background-color: var(--bg);
             color: var(--text);
             line-height: 1.6;
+            scroll-behavior: smooth;
         }
 
         /* --- Header --- */
@@ -55,6 +56,7 @@
             font-size: 1.1rem;
             transition: all 0.2s ease;
             margin: 5px;
+            cursor: pointer;
         }
 
         .btn-primary {
@@ -77,6 +79,7 @@
 
         .btn-secondary:hover {
             border-color: var(--text);
+            background-color: #252525;
         }
 
         /* --- Container --- */
@@ -86,7 +89,7 @@
             padding: 40px 20px;
         }
 
-        section { margin-bottom: 60px; }
+        section { margin-bottom: 80px; }
 
         h2 {
             font-size: 2rem;
@@ -135,6 +138,13 @@
             border-radius: 8px;
             margin-top: 15px;
         }
+        
+        /* Warning note style */
+        .note.warning {
+            background: rgba(255, 171, 0, 0.1);
+            border: 1px solid rgba(255, 171, 0, 0.3);
+            color: var(--warning);
+        }
 
         /* --- Downloads Grid --- */
         .downloads-grid {
@@ -150,13 +160,74 @@
             border-radius: 12px;
             border: 1px solid #333;
             transition: 0.2s;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
         }
 
-        .download-card:hover {
-            border-color: var(--primary);
-        }
-
+        .download-card:hover { border-color: var(--primary); }
         .icon { font-size: 2.5rem; display: block; margin-bottom: 10px; }
+
+        /* --- FEATURE GUIDES --- */
+        .feature-grid {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 40px;
+        }
+
+        .feature-card {
+            background: var(--surface);
+            border-radius: 16px;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            border: 1px solid #333;
+        }
+
+        .feature-header {
+            padding: 20px 30px;
+            background: rgba(255,255,255,0.03);
+            border-bottom: 1px solid #333;
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+        
+        .feature-header h3 { margin: 0; color: #fff; font-size: 1.4rem; }
+        .feature-icon { font-size: 1.8rem; }
+
+        .feature-body { padding: 30px; }
+        .feature-body ul { padding-left: 20px; margin-bottom: 20px; color: var(--text-secondary); }
+        .feature-body li { margin-bottom: 10px; }
+
+        .setup-tag {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 0.8rem;
+            font-weight: bold;
+            margin-left: auto;
+        }
+        .tag-req { background: rgba(255, 171, 0, 0.15); color: var(--warning); border: 1px solid rgba(255, 171, 0, 0.3); }
+        .tag-easy { background: rgba(0, 230, 118, 0.15); color: var(--primary); border: 1px solid rgba(0, 230, 118, 0.3); }
+
+        /* --- UNITY SPECIFIC --- */
+        .unity-box {
+            background: linear-gradient(145deg, #1E1E1E, #222);
+            border: 1px solid #444;
+            padding: 30px;
+            border-radius: 16px;
+            margin-bottom: 40px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .unity-box::before {
+            content: '';
+            position: absolute;
+            top: 0; left: 0; width: 4px; height: 100%;
+            background: #fff;
+        }
 
         /* --- FAQ / Troubleshooting --- */
         details {
@@ -190,16 +261,21 @@
             font-size: 0.9rem;
             border-top: 1px solid #222;
         }
+
+        @media (min-width: 768px) {
+            .feature-grid { grid-template-columns: 1fr 1fr; }
+            .feature-card.full-width { grid-column: span 2; }
+        }
     </style>
 </head>
 <body>
 
     <header>
         <h1>Use As PC Server</h1>
-        <p class="subtitle">Turn your phone into a high-performance Webcam, Mic, Mouse, and Second Display.</p>
+        <p class="subtitle">Turn your phone into a high-performance Webcam, Mic, Mouse, and Gamepad.</p>
         <div>
-            <a href="https://github.com/manjeetdeswal/Use-As-Server/releases/download/1.0/UseAs_Setup_v1.0.exe" class="btn btn-primary">Download Installer for Windows</a>
-            <p style="margin-top: 10px; font-size: 0.9rem; color: #666;">v1.0 • Windows 10/11 • 64-bit</p>
+            <a href="https://github.com/manjeetdeswal/Use-As-Server/releases/download/1.1/UseAs_Setup_v1.1.exe" class="btn btn-primary">Download Installer for Windows</a>
+            <p style="margin-top: 10px; font-size: 0.9rem; color: #666;">v1.1 • Windows 10/11 • 64-bit</p>
         </div>
     </header>
 
@@ -211,117 +287,236 @@
                 <div class="step-card">
                     <div class="step-num">1</div>
                     <h3>Run Installer</h3>
-                    <p>Run the setup file. It will automatically install the main app and the required Gamepad driver.</p>
-                    <div class="note">
-                        <strong>Note:</strong> You will see a pop-up for <em>ViGEmBus</em>. Please accept it for gamepad support.
+                    <p>Run the setup file to install the main Server application.</p>
+                    <div class="note warning">
+                        <strong>Important:</strong> Drivers are <u>NOT</u> included. Please download ViGEmBus & Camera drivers below.
                     </div>
                 </div>
                 <div class="step-card">
                     <div class="step-num">2</div>
                     <h3>Get Audio Driver</h3>
-                    <p>The installer will open a webpage for <strong>VB-Cable</strong>.</p>
-                    <p>Download & Install it manually to enable Microphone support.</p>
+                    <p>For Microphone support, you must install <strong>VB-Cable</strong> manually.</p>
+                    <p>The installer may open the download page for you, or use the link below.</p>
                 </div>
                 <div class="step-card">
                     <div class="step-num">3</div>
                     <h3>Start Server</h3>
-                    <p>Open <strong>Use As Server</strong> from your desktop and click <strong>▶ Start Server</strong>.</p>
-                    <p>Open the app on your phone—it should auto-detect your PC.</p>
+                    <p>Open <strong>Use As Server</strong> on PC and click <strong>▶ Start Server</strong>.</p>
+                    <p>Open the Android app to auto-connect.</p>
                 </div>
             </div>
         </section>
 
         <section>
-            <h2>Feature Requirements</h2>
-            <p style="margin-bottom: 20px;">Some features require one-time external setups to work fully.</p>
-            
+            <h2>Essential Downloads</h2>
             <div class="downloads-grid">
                 <div class="download-card">
-                    <span class="icon">🎤</span>
-                    <h3>Virtual Mic</h3>
-                    <p>Required for Microphone feature.</p>
-                    <br>
-                    <a href="https://vb-audio.com/Cable/" target="_blank" class="btn btn-secondary" style="font-size: 0.9rem;">Download VB-Cable</a>
-                    <div class="note" style="margin-top:10px;">Select "CABLE Output" as your mic in Discord/Zoom.</div>
+                    <div>
+                        <span class="icon">🎮</span>
+                        <h3>Gamepad Driver</h3>
+                        <p style="font-size:0.9rem; color:var(--warning); margin-bottom:10px;">(Manual Install Required)</p>
+                        <p>Required for Controller mode.</p>
+                    </div>
+                    <a href="https://github.com/nefarius/ViGEmBus/releases/latest" target="_blank" class="btn btn-secondary">Get ViGEmBus</a>
                 </div>
 
                 <div class="download-card">
-                    <span class="icon">📹</span>
-                    <h3>Virtual Camera</h3>
-                    <p>Required for Zoom/Discord video.</p>
-                    <br>
-                    <a href="https://obsproject.com/download" target="_blank" class="btn btn-secondary" style="font-size: 0.9rem;">Download OBS Studio</a>
-                    <div class="note" style="margin-top:10px;">Install OBS to enable the Virtual Camera driver.</div>
+                    <div>
+                        <span class="icon">📸</span>
+                        <h3>Camera Driver</h3>
+                        <p style="font-size:0.9rem; color:var(--text-secondary); margin-bottom:10px;">(Unity Capture)</p>
+                        <p>Required for Webcam mode.</p>
+                    </div>
+                    <a href="https://github.com/schellingb/UnityCapture" target="_blank" class="btn btn-secondary">Get Unity Capture</a>
                 </div>
 
                 <div class="download-card">
-                    <span class="icon">🖥️</span>
-                    <h3>Second Screen</h3>
-                    <p>Required to extend your desktop.</p>
-                    <br>
-                    <a href="https://www.amyuni.com/downloads/usbmmidd_v2.zip" target="_blank" class="btn btn-secondary" style="font-size: 0.9rem;">Get Virtual Display</a>
-                    <div class="note" style="margin-top:10px;">Extract & run <code>deviceinstaller64</code> to create a dummy monitor.</div>
+                    <div>
+                        <span class="icon">🎤</span>
+                        <h3>Virtual Mic</h3>
+                        <p style="font-size:0.9rem; color:var(--text-secondary); margin-bottom:10px;">(VB-Cable)</p>
+                        <p>Required for Microphone.</p>
+                    </div>
+                    <a href="https://vb-audio.com/Cable/" target="_blank" class="btn btn-secondary">Get VB-Cable</a>
                 </div>
+
+                <div class="download-card">
+                    <div>
+                        <span class="icon">📹</span>
+                        <h3>OBS Studio</h3>
+                        <p style="font-size:0.9rem; color:var(--text-secondary); margin-bottom:10px;">(Optional)</p>
+                        <p>For advanced streaming.</p>
+                    </div>
+                    <a href="https://obsproject.com/download" target="_blank" class="btn btn-secondary">Get OBS</a>
+                </div>
+            </div>
+        </section>
+
+        <section>
+            <h2>Unity Camera Integration</h2>
+            <div class="unity-box">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
+                   <h3>
+                      <a href="https://github.com/schellingb/UnityCapture" target="_blank" style="text-decoration:none; color:inherit;">
+                        <span style="font-size:1.5rem; margin-right:10px;">🎥</span>
+                        Unity Camera Mode
+                      </a>
+                   </h3>
+                   <span class="setup-tag tag-req">Driver Required</span>
+                </div>
+                <p>Use your phone's camera feed directly inside the Unity Engine or as a webcam for development.</p>
+                <br>
+                <ol style="margin-left: 20px; color: var(--text-secondary);">
+                    <li style="margin-bottom:10px;"><strong>Download Driver:</strong> Install the <strong>Unity Capture</strong> driver from the downloads section above.</li>
+                    <li style="margin-bottom:10px;"><strong>Register:</strong> Run <code>Install.bat</code> as Administrator in the UnityCapture folder.</li>
+                    <li style="margin-bottom:10px;"><strong>Usage:</strong> In your meeting app (Zoom/Discord), select <strong>"Unity Video Capture"</strong> as your webcam.</li>
+                </ol>
+                <div class="note" style="margin-top:20px;">
+                    Perfect for VR tracking testing, AR development, or adding a live feed to your game.
+                </div>
+            </div>
+        </section>
+
+        <section>
+            <h2>How to Use Features</h2>
+            <div class="feature-grid">
+
+                <div class="feature-card">
+                    <div class="feature-header">
+                        <span class="feature-icon">🖱️</span>
+                        <h3>Mouse & Keyboard</h3>
+                        <span class="setup-tag tag-easy">Plug & Play</span>
+                    </div>
+                    <div class="feature-body">
+                        <p>Turn your screen into a trackpad.</p>
+                        <br>
+                        <ul>
+                            <li><strong>Move:</strong> Slide one finger.</li>
+                            <li><strong>Click:</strong> Tap once (Left click).</li>
+                            <li><strong>Right Click:</strong> Tap with two fingers.</li>
+                            <li><strong>Scroll:</strong> Drag with two fingers.</li>
+                            <li><strong>Keyboard:</strong> Tap the keyboard icon to type on your phone and send text to PC.</li>
+                        </ul>
+                    </div>
+                </div>
+
+                <div class="feature-card">
+                    <div class="feature-header">
+                        <span class="feature-icon">🎮</span>
+                        <h3>Gamepad (Xbox/PS)</h3>
+                        <span class="setup-tag tag-easy">No Setup</span>
+                    </div>
+                    <div class="feature-body">
+                        <p>Play PC games using your phone as a controller.</p>
+                        <br>
+                        <ul>
+                          
+                            <li><strong>Layouts:</strong> Toggle between Xbox and PlayStation layouts in the app.</li>
+                            <li><strong>Haptics:</strong>Turn on off Vibration using vibration buttton</li>
+                            <li><strong>Compatibility:</strong> Works with Steam, Epic Games, and Emulators.</li>
+                        </ul>
+                    </div>
+                </div>
+
+                <div class="feature-card">
+                    <div class="feature-header">
+                        <span class="feature-icon">🎤</span>
+                        <h3>Microphone</h3>
+                        <span class="setup-tag tag-req">VB-Cable Req</span>
+                    </div>
+                    <div class="feature-body">
+                        <p>Use your phone as a high-quality PC mic.</p>
+                        <br>
+                        <ul>
+                            <li><strong>Step 1:</strong> Install <strong>VB-Cable</strong> driver.</li>
+                            <li><strong>Step 2:</strong> Open Use As app > Click <strong>Microphone</strong>.</li>
+                            <li><strong>Step 3:</strong> In Zoom/Discord, set Input Device to <strong>"CABLE Output"</strong>.</li>
+                        </ul>
+                        <div class="note">If voice is robotic, ensure PC and Phone are on same WiFi band (5GHz recommended).</div>
+                    </div>
+                </div>
+
+                <div class="feature-card">
+                    <div class="feature-header">
+                        <span class="feature-icon">📹</span>
+                        <h3>Webcam</h3>
+                        <span class="setup-tag tag-req">Driver Req</span>
+                    </div>
+                    <div class="feature-body">
+                        <p>Stream phone camera to PC for meetings or streaming.</p>
+                        <br>
+                        <ul>
+                            <li><strong>Step 1:</strong> Install <strong>Unity Capture</strong> driver (see Downloads).</li>
+                            <li><strong>Step 2:</strong> In the Server App, open the Camera tab.</li>
+                            <li><strong>Step 3:</strong> In Zoom/OBS, select <strong>"Unity Video Capture"</strong> as the source.</li>
+                        </ul>
+                    </div>
+                </div>
+
+                <div class="feature-card">
+                    <div class="feature-header">
+                        <span class="feature-icon">🔊</span>
+                        <h3>PC Speaker</h3>
+                        <span class="setup-tag tag-req">Stereo Mix</span>
+                    </div>
+                    <div class="feature-body">
+                        <p>Listen to PC audio on your phone wirelessly.</p>
+                        <br>
+                        <ul>
+                            <li><strong>Setup:</strong> Enable "Stereo Mix" in Windows Sound Settings.</li>
+                            <li><strong>Usage:</strong> Open Speaker tab on phone > Tap Toggle.</li>
+                            <li><strong>Auto-Stop:</strong> Streaming stops automatically when you close the app to save battery.</li>
+                        </ul>
+                    </div>
+                </div>
+
+                <div class="feature-card">
+                    <div class="feature-header">
+                        <span class="feature-icon">📂</span>
+                        <h3>File Transfer</h3>
+                        <span class="setup-tag tag-easy">Easy</span>
+                    </div>
+                    <div class="feature-body">
+                        <p>Send photos, videos, or text between devices.</p>
+                        <br>
+                        <ul>
+                            <li><strong>Phone to PC:</strong> Select file in app > Send. Saves to <code>Downloads/UseAs_Received</code>.</li>
+                            <li><strong>PC to Phone:</strong> Drag & Drop file onto the Server Window.</li>
+                            <li><strong>Clipboard:</strong> Copy text on one device, it auto-copies to the other.</li>
+                        </ul>
+                    </div>
+                </div>
+
             </div>
         </section>
 
         <section>
             <h2>Troubleshooting</h2>
-            
             <details>
                 <summary>⚠️ Phone cannot find PC (Stuck on Scanning)</summary>
                 <div class="faq-content">
                     <p>This is usually a Windows Firewall issue.</p>
                     <ol style="margin-left: 20px; margin-top: 10px;">
-                        <li>Press <strong>Windows Key</strong> and type <em>"Allow an app through Windows Firewall"</em>.</li>
+                        <li>Search for <em>"Allow an app through Windows Firewall"</em>.</li>
                         <li>Click <strong>Change Settings</strong>.</li>
-                        <li>Find <code>UseAsServer.exe</code> or <code>python</code> in the list.</li>
+                        <li>Find <code>UseAsServer.exe</code> or <code>python</code>.</li>
                         <li><strong>Check BOTH boxes:</strong> ☑ Private and ☑ Public.</li>
-                        <li>Click OK and restart the server.</li>
                     </ol>
                 </div>
             </details>
-
             <details>
-                <summary>🎤 Microphone hears my voice but PC doesn't</summary>
+                <summary>🎤 Microphone not working in Discord</summary>
                 <div class="faq-content">
-                    <p>The app sends audio to your PC's "Cable Input". You need to route it to your chat app.</p>
-                    <p style="margin-top: 10px;"><strong>Fix:</strong> In Zoom/Discord settings, set <strong>Microphone Input</strong> to <strong>"CABLE Output (VB-Audio Virtual Cable)"</strong>.</p>
+                    <p>Ensure you have selected <strong>"CABLE Output"</strong> as your Input Device in Discord settings, not "Default".</p>
                 </div>
             </details>
-
             <details>
-                <summary>🤖 Voice sounds robotic or high-pitched</summary>
+                <summary>🎮 Controller connected but not moving in game</summary>
                 <div class="faq-content">
-                    <p>This is a sample rate mismatch.</p>
-                    <p>The app is optimized for <strong>16000 Hz</strong> (Voice Quality) to ensure low latency. The latest server update handles this automatically. Please ensure you are running the latest version of the server.</p>
+                    <p>Some games require "Xbox 360 Controller" specifically. Switch the layout to Xbox in the app. Restart the game after connecting.</p>
+                    <p><strong>Note:</strong> Ensure you have installed the ViGEmBus driver from the Downloads section above.</p>
                 </div>
             </details>
-
-            <details>
-                <summary>🎮 Gamepad isn't working in games</summary>
-                <div class="faq-content">
-                    <p>Ensure the <strong>ViGEmBus</strong> driver was installed correctly during setup.</p>
-                    <p>If not, download it manually here: <a href="https://github.com/ViGEm/ViGEmBus/releases" target="_blank" style="color:var(--primary);">ViGEmBus Installer</a>.</p>
-                    <p><em>Note: Connect the gamepad in the app BEFORE launching your game.</em></p>
-                </div>
-            </details>
-
-            <details>
-                <summary>🔊 Phone speaker is silent (PC Audio to Phone)</summary>
-                <div class="faq-content">
-                    <p>If you cannot hear PC audio on your phone, Windows might not be sending the audio correctly.</p>
-                    <p><strong>Fix:</strong> Enable "Stereo Mix".</p>
-                    <ol style="margin-left: 20px; margin-top: 10px;">
-                        <li>Right-click the Speaker icon in taskbar -> <strong>Sound settings</strong>.</li>
-                        <li>Scroll down and click <strong>More sound settings</strong>.</li>
-                        <li>Go to the <strong>Recording</strong> tab.</li>
-                        <li>Right-click anywhere in the list -> Check <strong>Show Disabled Devices</strong>.</li>
-                        <li>Right-click <strong>Stereo Mix</strong> -> <strong>Enable</strong>.</li>
-                    </ol>
-                </div>
-            </details>
-
         </section>
 
     </div>
