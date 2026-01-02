@@ -200,6 +200,7 @@
         .feature-body ul { padding-left: 20px; margin-bottom: 20px; color: var(--text-secondary); }
         .feature-body li { margin-bottom: 10px; }
 
+        /* Setup tag styles */
         .setup-tag {
             display: inline-block;
             padding: 4px 12px;
@@ -289,14 +290,13 @@
                     <h3>Run Installer</h3>
                     <p>Run the setup file to install the main Server application.</p>
                     <div class="note warning">
-                        <strong>Important:</strong> Drivers are <u>NOT</u> included. Please download ViGEmBus & Camera drivers below.
+                        <strong>Important:</strong> Drivers are <u>NOT</u> included. Please download ViGEmBus, Unity & usbmmidd drivers below.
                     </div>
                 </div>
                 <div class="step-card">
                     <div class="step-num">2</div>
-                    <h3>Get Audio Driver</h3>
-                    <p>For Microphone support, you must install <strong>VB-Cable</strong> manually.</p>
-                    <p>The installer may open the download page for you, or use the link below.</p>
+                    <h3>Get Drivers</h3>
+                    <p>For full features, download the required drivers from the section below.</p>
                 </div>
                 <div class="step-card">
                     <div class="step-num">3</div>
@@ -310,6 +310,7 @@
         <section>
             <h2>Essential Downloads</h2>
             <div class="downloads-grid">
+                
                 <div class="download-card">
                     <div>
                         <span class="icon">🎮</span>
@@ -318,6 +319,16 @@
                         <p>Required for Controller mode.</p>
                     </div>
                     <a href="https://github.com/nefarius/ViGEmBus/releases/latest" target="_blank" class="btn btn-secondary">Get ViGEmBus</a>
+                </div>
+
+                <div class="download-card">
+                    <div>
+                        <span class="icon">🖥️</span>
+                        <h3>Display Driver</h3>
+                        <p style="font-size:0.9rem; color:var(--text-secondary); margin-bottom:10px;">(usbmmidd_v2)</p>
+                        <p>Required for Second Screen.</p>
+                    </div>
+                    <a href="https://www.amyuni.com/downloads/usbmmidd_v2.zip" target="_blank" class="btn btn-secondary">Get usbmmidd</a>
                 </div>
 
                 <div class="download-card">
@@ -340,15 +351,6 @@
                     <a href="https://vb-audio.com/Cable/" target="_blank" class="btn btn-secondary">Get VB-Cable</a>
                 </div>
 
-                <div class="download-card">
-                    <div>
-                        <span class="icon">📹</span>
-                        <h3>OBS Studio</h3>
-                        <p style="font-size:0.9rem; color:var(--text-secondary); margin-bottom:10px;">(Optional)</p>
-                        <p>For advanced streaming.</p>
-                    </div>
-                    <a href="https://obsproject.com/download" target="_blank" class="btn btn-secondary">Get OBS</a>
-                </div>
             </div>
         </section>
 
@@ -371,9 +373,6 @@
                     <li style="margin-bottom:10px;"><strong>Register:</strong> Run <code>Install.bat</code> as Administrator in the UnityCapture folder.</li>
                     <li style="margin-bottom:10px;"><strong>Usage:</strong> In your meeting app (Zoom/Discord), select <strong>"Unity Video Capture"</strong> as your webcam.</li>
                 </ol>
-                <div class="note" style="margin-top:20px;">
-                    Perfect for VR tracking testing, AR development, or adding a live feed to your game.
-                </div>
             </div>
         </section>
 
@@ -395,7 +394,25 @@
                             <li><strong>Click:</strong> Tap once (Left click).</li>
                             <li><strong>Right Click:</strong> Tap with two fingers.</li>
                             <li><strong>Scroll:</strong> Drag with two fingers.</li>
-                            <li><strong>Keyboard:</strong> Tap the keyboard icon to type on your phone and send text to PC.</li>
+                        </ul>
+                    </div>
+                </div>
+
+                <div class="feature-card">
+                    <div class="feature-header">
+                        <span class="feature-icon">🖥️</span>
+                        <h3>Second Monitor</h3>
+                        <span class="setup-tag tag-req">Driver Req</span>
+                    </div>
+                    <div class="feature-body">
+                        <p>Extend your desktop workspace to your Android device.</p>
+                        <br>
+                        <ul>
+                            <li><strong>Step 1:</strong> Download & Extract <strong>usbmmidd_v2</strong> (link above).</li>
+                            <li><strong>Step 2:</strong> Open Command Prompt as Admin in that folder.</li>
+                            <li><strong>Step 3:</strong> Run: <br><code style="background:#333; padding:2px 5px; border-radius:4px; font-size:0.85rem;">deviceinstaller64 install usbmmidd.inf usbmmidd</code></li>
+                            <li><strong>Step 4:</strong> On PC: <em>Settings > System > Display > Extend these displays</em>.</li>
+                            <li><strong>Step 5:</strong> On Phone: Open <strong>Monitor</strong> tab.</li>
                         </ul>
                     </div>
                 </div>
@@ -410,9 +427,8 @@
                         <p>Play PC games using your phone as a controller.</p>
                         <br>
                         <ul>
-                          
                             <li><strong>Layouts:</strong> Toggle between Xbox and PlayStation layouts in the app.</li>
-                            <li><strong>Haptics:</strong>Turn on off Vibration using vibration buttton</li>
+                            <li><strong>Haptics:</strong> Turn on/off Vibration using the vibration button.</li>
                             <li><strong>Compatibility:</strong> Works with Steam, Epic Games, and Emulators.</li>
                         </ul>
                     </div>
@@ -432,7 +448,6 @@
                             <li><strong>Step 2:</strong> Open Use As app > Click <strong>Microphone</strong>.</li>
                             <li><strong>Step 3:</strong> In Zoom/Discord, set Input Device to <strong>"CABLE Output"</strong>.</li>
                         </ul>
-                        <div class="note">If voice is robotic, ensure PC and Phone are on same WiFi band (5GHz recommended).</div>
                     </div>
                 </div>
 
