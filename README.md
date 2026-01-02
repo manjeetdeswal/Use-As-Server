@@ -82,5 +82,5 @@ Launch the GUI:
 ```cmd
 python unified_remote_gui.py
 
- Built  by Manjeet Deswal
+<<<<<< Built  by Manjeet Deswal >>>>>>>
 
