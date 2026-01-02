@@ -76,7 +76,11 @@ Run the included batch file to install Python libraries:
 requirements.bat
 
 
-#### 4. Run 
+#### 4. Run Server
 Launch the GUI:
+
+```cmd
 python unified_remote_gui.py
-<div align="center"> <p>Built with ❤️ by Manjeet Deswal</p> </div>
+
+ Built  by Manjeet Deswal
+
