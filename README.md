@@ -1,77 +1,82 @@
-Use As Server 🖥️📱
-Use As turns your Android device into a suite of powerful PC peripherals. Control your computer, stream video, extend your display, and use your phone as a microphone, all with low latency over WiFi or USB.
+<div align="center">
 
-🌐 Official Website & Guide: https://manjeetdeswal.github.io/Use-As-Server/
+# Use As Server 🖥️📱
 
-✨ Features
-🖱️ Smart Touchpad: Smooth mouse control with acceleration (ballistics) and multi-monitor support.
+**Turn your Android device into a suite of powerful PC peripherals.** Control your computer, stream video, extend your display, and use your phone as a microphone, all with low latency over WiFi or USB.
 
-⌨️ Full Keyboard: 83-key layout with modifier support (Ctrl, Alt, Shift, Win) and live text preview.
+[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux-lightgrey.svg)]()
+[![Python](https://img.shields.io/badge/python-3.10%2B-yellow.svg)](https://www.python.org/)
 
-🎮 Virtual Gamepad: Emulates an Xbox 360 controller for playing PC games (supports analog triggers & sticks).
+[**🌐 Visit Official Website & Guide**](https://manjeetdeswal.github.io/Use-As-Server/)
 
-📹 Virtual Webcam:
+</div>
 
-Unity Mode: Direct, high-performance webcam driver (Unity Capture).
+---
 
-OBS Mode: Compatible with OBS Virtual Camera.
+## ✨ Features
 
-🎤 Wireless Microphone: Routes phone audio to your PC as a microphone input with noise suppression.
+| Feature | Description |
+| :--- | :--- |
+| **🖱️ Smart Touchpad** | Smooth mouse control with acceleration (ballistics) and multi-monitor support. |
+| **⌨️ Full Keyboard** | 83-key layout with modifier support (Ctrl, Alt, Shift, Win) and live text preview. |
+| **🎮 Virtual Gamepad** | Emulates an **Xbox 360 controller** for playing PC games (supports analog triggers & sticks). |
+| **📹 Virtual Webcam** | Supports **Unity Mode** (Direct Driver) and **OBS Mode** (Virtual Camera). |
+| **🎤 Wireless Mic** | Routes phone audio to your PC as a microphone input with noise suppression. |
+| **🖥️ Second Display** | Extend your Windows desktop workspace to your phone screen. |
+| **📂 File Transfer** | Drag & drop files PC-to-Phone, or send Phone-to-PC instantly. |
+| **⚡ Zero Latency** | Optimized for **USB Tethering** and **5GHz WiFi**. |
 
-🖥️ Second Display: Extend your Windows desktop to your phone screen (requires usbmmidd).
+---
 
-📂 File Transfer: Drag & drop files PC-to-Phone, or send Phone-to-PC instantly.
+## 📥 Installation
 
-⚡ Zero Latency: Optimized for USB Tethering and 5GHz WiFi.
+You can run the server using the **Windows Installer** (Recommended) or from **Python Source**.
 
-📥 Installation
-You can run the server using the Windows Installer (Recommended) or from Python Source.
+### Option A: Windows Installer (Recommended)
 
-Option A: Windows Installer (Recommended)
-Download the latest UseAs_Setup.exe from the Releases Page.
+1.  Download the latest **`UseAs_Setup.exe`** from the [**Releases Page**](https://github.com/manjeetdeswal/Use-As-Server/releases).
+2.  Run the installer to set up the server application.
+3.  **Install Drivers:** (See box below).
+4.  Launch **Use As Server** from your desktop.
 
-Run the installer to set up the server application.
+> [!IMPORTANT]
+> **Drivers are NOT included in the installer.**
+> To unlock all features, you must download and install these specific drivers manually:
+>
+> * 🎮 **Gamepad:** [Download ViGEmBus](https://github.com/nefarius/ViGEmBus/releases/latest) (Required for Controller)
+> * 🎤 **Microphone:** [Download VB-CABLE](https://vb-audio.com/Cable/) (Required for Audio)
+> * 📸 **Webcam:** [Download Unity Capture](https://github.com/schellingb/UnityCapture) (Required for Camera)
+> * 🖥️ **Display:** [Download usbmmidd_v2](https://www.datronicsoft.com/download/usbmmidd_v2.zip) (Required for Second Monitor)
 
-⚠️ Install Required Drivers Manually:
+---
 
-Microphone: VB-CABLE (Required for Audio).
+### Option B: Run from Source (Advanced)
 
-Webcam: Unity Capture (Required for Camera).
+If you are a developer or on Linux, you can run the raw Python script.
 
-Display: usbmmidd_v2 (Required for Second Monitor).
+#### 1. Prerequisites
+* **Python 3.10** or newer installed.
 
-Launch "Use As Server" from your desktop.
+#### 2. Install Drivers
+* **Gamepad:** Install [ViGEmBus](https://github.com/nefarius/ViGEmBus/releases/latest).
+* **Microphone:** Install [VB-CABLE](https://vb-audio.com/Cable/).
+* **Webcam:** Download [Unity Capture](https://github.com/schellingb/UnityCapture) and run `Install.bat` as Administrator.
+* **Display:** Download [usbmmidd_v2](https://www.datronicsoft.com/download/usbmmidd_v2.zip).
+    * Extract the zip file.
+    * Open Command Prompt **as Administrator** in that folder.
+    * Run the following command:
+        ```cmd
+        deviceinstaller64 install usbmmidd.inf usbmmidd
+        ```
 
-Option B: Run from Source (Advanced)
-If you prefer to run the raw Python script, follow these steps.
-
-1. Prerequisites
-Python 3.10 or newer.
-
-2. Install Drivers
-Gamepad: Download & Install ViGEmBus.
-
-Microphone: Download & Install VB-CABLE.
-
-Webcam: Download Unity Capture → Run Install.bat as Administrator.
-
-Display: Download usbmmidd_v2.
-
-Extract zip.
-
-Open CMD as Admin in that folder.
-
-Run: deviceinstaller64 install usbmmidd.inf usbmmidd
-
-3. Install Dependencies
-Run the included batch file:
-
-DOS
-
+#### 3. Install Dependencies
+Run the included batch file to install Python libraries:
+```cmd
 requirements.bat
-4. Run
+
+
+#### 4. Run 
 Launch the GUI:
-
-DOS
-
 python unified_remote_gui.py
+<div align="center"> <p>Built with ❤️ by Manjeet Deswal</p> </div>
