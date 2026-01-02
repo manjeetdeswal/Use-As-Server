@@ -62,7 +62,7 @@ If you are a developer or on Linux, you can run the raw Python script.
 * **Gamepad:** Install [ViGEmBus](https://github.com/nefarius/ViGEmBus/releases/latest).
 * **Microphone:** Install [VB-CABLE](https://vb-audio.com/Cable/).
 * **Webcam:** Download [Unity Capture](https://github.com/schellingb/UnityCapture) and run `Install.bat` as Administrator.
-* **Display:** Download [usbmmidd_v2](https://www.datronicsoft.com/download/usbmmidd_v2.zip).
+* **Display:** Download [usbmmidd_v2](https://www.amyuni.com/downloads/usbmmidd_v2.zip).
     * Extract the zip file.
     * Open Command Prompt **as Administrator** in that folder.
     * Run the following command:
