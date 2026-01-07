@@ -36,7 +36,7 @@ if sys.platform == "win32":
     import ctypes
     from ctypes import windll, wintypes
 # --- CONSTANTS ---
-APP_VERSION = "1.1"
+APP_VERSION = "1.3"
 GITHUB_REPO = "manjeetdeswal/Use-As-Server" # ⚠️ CHANGE THIS to your actual "user/repo"
 GITHUB_URL = f"https://github.com/{GITHUB_REPO}"
 SETTINGS_FILE = Path.home() / "Downloads" / "UseAs_Received" / "server_settings.json"
@@ -1475,7 +1475,7 @@ class UnifiedRemoteServer:
             self._put("log", f"❌ Scroll error: {e}")
 
     def _handle_key_press(self, payload):
-        """Handle keyboard input with Scan Codes (Required for Games)."""
+        """Handle keyboard input (Respects Down/Up actions)."""
         try:
             import platform
             import time
@@ -1484,10 +1484,12 @@ class UnifiedRemoteServer:
             event = json.loads(payload)
             key = event.get("key", "")
             modifiers = event.get("modifiers", [])
+            # 👇 READ THE ACTION (down, up, or press)
+            action = event.get("action", "press")
 
             key_lower = key.lower()
 
-            # --- BRIGHTNESS HANDLER ---
+            # --- BRIGHTNESS HANDLER (Keep existing) ---
             if key_lower in ["brightnessup", "brightnessdown"]:
                 try:
                     import screen_brightness_control as sbc
@@ -1518,60 +1520,68 @@ class UnifiedRemoteServer:
                     'backspace': 0x08, 'tab': 0x09, 'enter': 0x0D, 'esc': 0x1B,
                     'space': 0x20, 'caps': 0x14, 'caps lock': 0x14,
                     '←': 0x25, '↑': 0x26, '→': 0x27, '↓': 0x28,
-                    'shift': 0x10, 'ctrl': 0x11, 'alt': 0x12, 'meta': 0x5B, 'win': 0x5B
+                    'shift': 0x10, 'ctrl': 0x11, 'alt': 0x12, 'meta': 0x5B, 'win': 0x5B, 'windows': 0x5B
                 }
 
                 vk_code = VK_MAP.get(key_lower, 0)
 
                 if vk_code:
-                    # FIX 1: Get Hardware Scan Code (Essential for Games)
                     scan_code = ctypes.windll.user32.MapVirtualKeyW(vk_code, 0)
 
-                    # Press Modifiers (Ctrl, Alt, Shift)
-                    for mod in modifiers:
-                        mod_vk = VK_MAP.get(mod.lower(), 0)
-                        if mod_vk:
-                            mod_scan = ctypes.windll.user32.MapVirtualKeyW(mod_vk, 0)
-                            ctypes.windll.user32.keybd_event(mod_vk, mod_scan, 0, 0)
+                    # Helper to handle modifiers
+                    def trigger_modifiers(is_down):
+                        flags = 0 if is_down else 2  # 0=Down, 2=Up
+                        for mod in modifiers:
+                            mod_vk = VK_MAP.get(mod.lower(), 0)
+                            if mod_vk:
+                                mod_scan = ctypes.windll.user32.MapVirtualKeyW(mod_vk, 0)
+                                ctypes.windll.user32.keybd_event(mod_vk, mod_scan, flags, 0)
 
-                    # Press Main Key
-                    ctypes.windll.user32.keybd_event(vk_code, scan_code, 0, 0)  # Down
+                    # 👇 NEW LOGIC: Handle Specific Actions
+                    if action == "down":
+                        trigger_modifiers(True)  # Press Modifiers
+                        ctypes.windll.user32.keybd_event(vk_code, scan_code, 0, 0)  # Press Key
 
-                    # FIX 2: Hold for 30ms (Games need time to detect input)
-                    if self.gaming_mode:
-                        time.sleep(0.03)
+                    elif action == "up":
+                        ctypes.windll.user32.keybd_event(vk_code, scan_code, 2, 0)  # Release Key
+                        trigger_modifiers(False)  # Release Modifiers
 
-                    ctypes.windll.user32.keybd_event(vk_code, scan_code, 2, 0)  # Up
+                    else:
+                        # "press" (Legacy / Macro behavior) - Do Full Click
+                        trigger_modifiers(True)
+                        ctypes.windll.user32.keybd_event(vk_code, scan_code, 0, 0)
+                        if self.gaming_mode:
+                            time.sleep(0.03)
+                        ctypes.windll.user32.keybd_event(vk_code, scan_code, 2, 0)
+                        trigger_modifiers(False)
 
-                    # Release Modifiers
-                    for mod in reversed(modifiers):
-                        mod_vk = VK_MAP.get(mod.lower(), 0)
-                        if mod_vk:
-                            mod_scan = ctypes.windll.user32.MapVirtualKeyW(mod_vk, 0)
-                            ctypes.windll.user32.keybd_event(mod_vk, mod_scan, 2, 0)
                 else:
-                    # Fallback for keys not in map (Volume, Media, etc.)
+                    # Fallback (PyAutoGUI)
                     import pyautogui
                     if key_lower == 'caps': key_lower = 'capslock'
-                    if modifiers:
-                        pyautogui.hotkey(*[m.lower() for m in modifiers] + [key_lower])
+
+                    keys_to_press = [m.lower() for m in modifiers] + [key_lower]
+
+                    if action == "down":
+                        for k in keys_to_press: pyautogui.keyDown(k)
+                    elif action == "up":
+                        for k in reversed(keys_to_press): pyautogui.keyUp(k)
                     else:
-                        pyautogui.press(key_lower)
+                        pyautogui.hotkey(*keys_to_press)
 
             else:
-                # Linux/Mac fallback (PyAutoGUI usually works fine on Linux games)
+                # Linux/Mac logic
                 import pyautogui
-                key_map = {
-                    "Backspace": "backspace", "Enter": "enter", "Space": "space",
-                    "Tab": "tab", "Esc": "esc", "Caps": "capslock",
-                    "←": "left", "→": "right", "↑": "up", "↓": "down"
-                }
+                key_map = {"Backspace": "backspace", "Enter": "enter", "Space": "space", "Tab": "tab", "Esc": "esc"}
                 mapped_key = key_map.get(key, key.lower())
+                keys_to_press = [m.lower() for m in modifiers] + [mapped_key]
 
-                if modifiers:
-                    pyautogui.hotkey(*[m.lower() for m in modifiers] + [mapped_key])
+                if action == "down":
+                    for k in keys_to_press: pyautogui.keyDown(k)
+                elif action == "up":
+                    for k in reversed(keys_to_press): pyautogui.keyUp(k)
                 else:
-                    pyautogui.press(mapped_key)
+                    pyautogui.hotkey(*keys_to_press)
 
         except Exception as e:
             self._put("log", f"❌ Key error: {e}")
