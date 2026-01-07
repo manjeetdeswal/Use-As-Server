@@ -2,6 +2,8 @@ import base64
 import subprocess
 import tkinter as tk
 from tkinter import ttk, scrolledtext, messagebox, filedialog
+import customtkinter as ctk
+from PIL import Image
 import threading
 import asyncio
 import json
@@ -34,7 +36,7 @@ if sys.platform == "win32":
     import ctypes
     from ctypes import windll, wintypes
 # --- CONSTANTS ---
-APP_VERSION = "1.0.0"
+APP_VERSION = "1.1"
 GITHUB_REPO = "manjeetdeswal/Use-As-Server" # ⚠️ CHANGE THIS to your actual "user/repo"
 GITHUB_URL = f"https://github.com/{GITHUB_REPO}"
 SETTINGS_FILE = Path.home() / "Downloads" / "UseAs_Received" / "server_settings.json"
@@ -53,6 +55,7 @@ COLORS = {
     "text_dim": "#b0b0b0",
     "btn_disabled": "#424242"
 }
+
 
 SAVE_DIR = Path.home() / "Downloads" / "UseAs_Received"
 
@@ -114,13 +117,18 @@ class DiscoveryServer(threading.Thread):
 
 
 class UnifiedRemoteServer:
-    def __init__(self, host="0.0.0.0", port=8080, update_queue: queue.Queue = None):
+    def __init__(self, host="0.0.0.0", port=8080, gaming_mode=True, update_queue: queue.Queue = None):
         import threading
         self.sending_lock = threading.Lock()
+
+
+        self.gaming_mode = gaming_mode
+
         self.host = host
         self.port = port  # Main TCP Port
 
         self.ack_event = threading.Event()
+
         self.clients = set()
         self._loop = None
         self._ws_server = None
@@ -138,14 +146,9 @@ class UnifiedRemoteServer:
         self.udp_mouse.daemon = True
         self.udp_mouse.start()
 
-        # --- FIX: DO NOT CREATE ASYNCIO OBJECTS HERE ---
-        # asyncio.Queue() requires an active event loop.
-        # Since __init__ runs in a standard thread, this would crash.
-        # We initialize it as None here, and create the real Queue inside _run_loop later.
         self._broadcast_queue = None
-        # -----------------------------------------------
 
-        # ... (Rest of variables: vcam, audio, display, codec, etc.) ...
+        # ... (Rest of variables) ...
         self._vcam = None
         self._vcam_running = False
         self._last_frame = None
@@ -156,10 +159,14 @@ class UnifiedRemoteServer:
         self._display_active = False
         self._gamepad_active = False
         self.client_gamepads = {}
-        self._display_width = 1920
-        self._display_height = 1080
 
-        # ... (Rest of your initialization variables remain the same) ...
+        self._display_width = 1280
+        self._display_height = 720
+        self._display_fps = 30
+
+        # Audio mic flag
+        self._mic_active = False
+
         self.bg_mode = "none"
         self.bg_image_path = None
         self.bg_image_cache = None
@@ -263,7 +270,6 @@ class UnifiedRemoteServer:
             try:
                 async for message in websocket:
                     try:
-                        # 1. Handle Binary Data (Video frames often come as bytes)
                         if isinstance(message, bytes):
                             try:
                                 message = message.decode('utf-8')
@@ -288,27 +294,62 @@ class UnifiedRemoteServer:
                         elif msg_type == "ack":
                             self.ack_event.set()
 
-                        # --- AUDIO & GAMEPAD ---
+                        # --- MICROPHONE HANDLING (NEW) ---
+                        elif msg_type == "mic_start":
+                            try:
+                                self._mic_active = True  # <--- ENABLE FLAG
+                                new_rate = int(payload)
+                                self._put("log", f"🎤 Mic started at {new_rate}Hz")
+
+                                # Close old stream to apply new rate
+                                if hasattr(self, '_mic_stream') and self._mic_stream:
+                                    try:
+                                        self._mic_stream.close()
+                                    except:
+                                        pass
+                                    self._mic_stream = None
+                                self._mic_rate = new_rate
+                            except Exception as e:
+                                self._put("log", f"⚠️ Mic start error: {e}")
+
+                        elif msg_type == "mic_stop":
+                            self._mic_active = False  # <--- DISABLE FLAG
+
+                            if hasattr(self, '_mic_stream') and self._mic_stream:
+                                try:
+                                    self._mic_stream.close()
+                                except:
+                                    pass
+                                self._mic_stream = None
+                            self._put("log", "🎤 Mic Stopped")
+
                         elif msg_type == "audio_frame":
                             self._handle_audio_frame(payload)
 
+                        # --- PC AUDIO STREAMING ---
                         elif msg_type == "audio_control":
-                            action = payload
-                            if action == "start":
-                                self._put("log", "📲 Auto-starting Audio Stream...")
-                                # Run in thread to avoid blocking the websocket loop
-                                threading.Thread(target=self.start_audio_streaming, daemon=True).start()
-
-                                # OPTIONAL: Update GUI Button automatically
-                                # This requires a callback or queue event handled by process_queue
+                            payload_str = str(payload)
+                            if payload_str == "start" or payload_str.startswith("start|"):
+                                self._put("log", "📲 Mobile requested Audio Start...")
+                                sample_rate = 48000
+                                if "|" in payload_str:
+                                    try:
+                                        parts = payload_str.split("|", 1)
+                                        if len(parts) > 1:
+                                            config = json.loads(parts[1])
+                                            sample_rate = int(config.get("rate", 48000))
+                                            self._put("log", f"⚙️ Config received: {sample_rate}Hz")
+                                    except Exception as e:
+                                        self._put("log", f"⚠️ Config parse failed: {e}")
+                                threading.Thread(target=self.start_audio_streaming, args=(sample_rate,),
+                                                 daemon=True).start()
                                 self._put("audio_status", True)
-
-                            elif action == "stop":
-                                self._put("log", "📲 Client requested Audio Stop")
+                            elif payload_str == "stop":
+                                self._put("log", "📲 Mobile requested Audio Stop")
                                 self.stop_audio_streaming()
                                 self._put("audio_status", False)
+
                         elif msg_type == "gamepad_state":
-                            # Pass websocket so we know WHICH controller to update
                             self._handle_gamepad_state(payload, websocket)
 
                         # --- CLIPBOARD & FILES ---
@@ -341,26 +382,20 @@ class UnifiedRemoteServer:
                     except json.JSONDecodeError:
                         pass
                     except Exception as e:
-                        pass  # Ignore tiny decode errors
+                        pass
 
             except websockets.ConnectionClosedOK:
                 pass
             except Exception as e:
                 self._put("log", f"⚠️ Handler error: {e}")
-
-            # --- CLEANUP ON DISCONNECT ---
             finally:
                 if websocket in self.clients:
                     self.clients.remove(websocket)
-
-                # 🔌 UNPLUG GAMEPAD (Fixes "4 Controllers" issue)
                 if hasattr(self, 'client_gamepads') and websocket in self.client_gamepads:
                     try:
                         del self.client_gamepads[websocket]
-                        self._put("log", f"🎮 Gamepad unplugged for {remote_addr}")
-                    except Exception as e:
-                        print(f"Error removing gamepad: {e}")
-
+                    except:
+                        pass
                 self._put("log", f"❌ Client disconnected: {remote_addr}")
                 self._put("client_count", len(self.clients))
 
@@ -803,67 +838,62 @@ class UnifiedRemoteServer:
         self._vcam.close()
 
     def _handle_audio_frame(self, payload):
-        """Handle incoming audio frame from microphone."""
+        """Handle incoming audio frame from phone microphone."""
+        if not getattr(self, '_mic_active', False):
+            return  # Ignore stray packets if mic is stopped
+
         try:
             import base64
             import pyaudio
 
-            # Decode base64 audio
+            # 1. Decode Audio
             audio_bytes = base64.b64decode(payload)
 
-            # Initialize PyAudio if needed
-            if not hasattr(self, '_audio_player'):
-                self._audio_player = pyaudio.PyAudio()
+            # 2. Initialize Audio System (One time)
+            if not hasattr(self, '_mic_player'):
+                self._mic_player = pyaudio.PyAudio()
+                self._mic_stream = None
+                self._mic_rate = 16000  # Default fallback
 
-                # --- FIND VIRTUAL CABLE DEVICE ---
+            # 3. Create/Re-create Stream if missing
+            if not hasattr(self, '_mic_stream') or self._mic_stream is None:
+
+                # Find Virtual Cable (Output) to play INTO
                 target_device_index = None
-                device_name = "Default Speakers"
+                device_name = "Default Output"
 
                 try:
-                    # List all devices to find the Virtual Cable
-                    info = self._audio_player.get_host_api_info_by_index(0)
+                    info = self._mic_player.get_host_api_info_by_index(0)
                     numdevices = info.get('deviceCount')
-
                     for i in range(0, numdevices):
-                        device = self._audio_player.get_device_info_by_host_api_device_index(0, i)
+                        device = self._mic_player.get_device_info_by_host_api_device_index(0, i)
                         name = device.get('name')
-                        max_input = device.get('maxInputChannels')
-                        max_output = device.get('maxOutputChannels')
-
-                        # Look for VB-Cable (Windows) or PulseAudio Null Sink (Linux)
-                        # We need an OUTPUT device (Python plays TO it)
-                        if max_output > 0:
-                            # "CABLE Input" is what we play TO. "CABLE Output" is the mic.
-                            if "CABLE Input" in name or "VB-Audio" in name or "Virtual Audio Driver" in name:
+                        # We look for "CABLE Input" or similar to route to mic
+                        if device.get('maxOutputChannels') > 0:
+                            if "CABLE Input" in name or "VB-Audio" in name:
                                 target_device_index = i
                                 device_name = name
                                 break
-                except Exception:
+                except:
                     pass
 
-                # Log where we are sending audio
-                if target_device_index is not None:
-                    self._put("log", f"🎤 Found Virtual Mic Driver: {device_name}")
-                    self._put("log", "✅ Audio is now routing to your Input Devices!")
-                else:
-                    self._put("log", "⚠️ Virtual Cable NOT Found - Playing to Speakers")
-                    self._put("log", "💡 Install VB-CABLE (Win) or setup PulseAudio (Linux) to use as Mic")
+                if target_device_index:
+                    self._put("log", f"🎤 Routing Phone Mic to: {device_name}")
 
-                # Open Stream
-                self._audio_stream = self._audio_player.open(
+                # Open Stream with the DYNAMIC rate
+                self._mic_stream = self._mic_player.open(
                     format=pyaudio.paInt16,
-                    channels=1,  # Mono (Matches Android config)
-                    rate=16000,  # Standard Sample Rate
+                    channels=1,  # Mono (Standard for Mic)
+                    rate=self._mic_rate,  # <--- USES VARIABLE FROM mic_start
                     output=True,
-                    output_device_index=target_device_index  # Use the virtual cable if found
+                    output_device_index=target_device_index
                 )
-                self._put("log", "🔊 Audio playback initialized")
 
-            # Write audio to the device
-            self._audio_stream.write(audio_bytes)
+            # 4. Write Data
+            self._mic_stream.write(audio_bytes)
 
         except Exception as e:
-            # self._put("log", f"❌ Audio Error: {e}")
+            # self._put("log", f"❌ Mic Playback Error: {e}")
             pass
 
     def _handle_gamepad_state(self, payload, client_ws):
@@ -969,23 +999,23 @@ class UnifiedRemoteServer:
             action = request.get('action')
             self._put("log", f"🖥️ Display request: {action}")
 
+            # 1. READ PARAMS (Resolution + FPS)
+            if action in ['start_display', 'change_resolution']:
+                self._display_width = int(request.get('width', 1280))
+                self._display_height = int(request.get('height', 720))
+                self._display_fps = int(request.get('fps', 30))  # <--- READ FPS
+
+                self._put("log", f"🖥️ Config: {self._display_width}x{self._display_height} @ {self._display_fps} FPS")
+
             if action == 'start_display':
-                width = request.get('width', 1920)
-                height = request.get('height', 1080)
-
-                self._display_width = width
-                self._display_height = height
-
                 # If a capture is already active, stop it first (force restart)
                 if hasattr(self, '_display_thread') and getattr(self,
                                                                 '_display_thread') is not None and self._display_thread.is_alive():
-                    self._put("log", "🔄 Restarting screen capture (stop existing first)...")
+                    self._put("log", "🔄 Restarting screen capture...")
                     self._stop_display_capture(wait_seconds=0.8)
 
                 self._display_active = True
-                self._put("log", f"🖥️ Starting screen capture: {width}x{height}")
 
-                # Start screen capture thread
                 import threading
                 self._display_thread = threading.Thread(
                     target=self._capture_screen_loop,
@@ -993,28 +1023,12 @@ class UnifiedRemoteServer:
                 )
                 self._display_thread.start()
 
-                self._put("log", "✅ Screen capture thread started")
-                import psutil, os
-                p = psutil.Process(os.getpid())
-                p.nice(psutil.HIGH_PRIORITY_CLASS)
-
             elif action == 'stop_display':
-                # Stop capture gracefully
-                self._put("log", "🛑 Stop display requested")
                 self._stop_display_capture()
                 self._display_active = False
 
-            elif action == 'change_resolution':
-                width = request.get('width', 1920)
-                height = request.get('height', 1080)
-                self._display_width = width
-                self._display_height = height
-                self._put("log", f"🖥️ Resolution changed: {width}x{height}")
-
         except Exception as e:
             self._put("log", f"❌ Display request error: {e}")
-            import traceback
-            self._put("log", f"Stack trace: {traceback.format_exc()}")
 
     def _stop_display_capture(self, wait_seconds: float = 1.0):
         """Stop display capture thread (if running) and wait a short time for it to exit."""
@@ -1038,96 +1052,90 @@ class UnifiedRemoteServer:
             self._put("log", f"❌ Error stopping display capture: {e}")
 
     def _capture_screen_loop(self):
-        """Continuously capture and stream screen using OpenCV (Much Faster)."""
+        """Continuously capture and stream screen using DXCam (GPU Accelerated)."""
         try:
-            import mss
-            import numpy as np
+            import dxcam
             import cv2
             import base64
             import time
             import pyautogui
+            import numpy as np
 
-            self._put("log", "🖥️ Screen capture started (Fast Mode)")
-
-            # Latency Tweak: Lower resolution = Lower Latency
-            # 1280x720 is the sweet spot for WiFi streaming
-            target_w, target_h = 1280, 720
+            self._put("log", "🖥️ Screen capture started (DXCam GPU Mode)")
 
             # Latency Tweak: JPEG Quality
-            # 50-60 is good. Below 40 looks bad, above 70 adds lag.
             encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), 50]
+
+            # --- INITIALIZE DXCAM ---
+            # output_color="BGR" ensures compatibility with OpenCV without conversion
+            camera = dxcam.create(output_idx=0, output_color="BGR")
 
             # --- MOUSE HIDING LOGIC ---
             last_mouse_pos = (0, 0)
             last_move_time = time.time()
-            HIDE_TIMEOUT = 3.0  # Hide pointer after 3 seconds of inactivity
+            HIDE_TIMEOUT = 3.0
 
-            with mss.mss() as sct:
-                # Select Monitor
-                monitor_idx = 1
-                if len(sct.monitors) > 2: monitor_idx = 2
-                monitor = sct.monitors[monitor_idx]
+            if camera is None:
+                self._put("log", "❌ DXCam init failed! Fallback recommended.")
+                return
 
-                mon_left = monitor["left"]
-                mon_top = monitor["top"]
+            while self._display_active:
+                start_time = time.time()
 
-                while self._display_active:
-                    start_time = time.time()
+                # --- READ DYNAMIC SETTINGS INSIDE LOOP ---
+                # This allows changing resolution/FPS without restarting the stream
+                target_w = self._display_width
+                target_h = self._display_height
+                target_fps = self._display_fps
 
+                # Calculate sleep time based on requested FPS
+                frame_duration = 1.0 / max(1, target_fps)
+
+                try:
+                    # 1. Capture Frame (GPU)
+                    frame = camera.grab()
+
+                    if frame is None:
+                        time.sleep(0.005)  # Tiny sleep to prevent CPU spin
+                        continue
+
+                    # 2. Draw Mouse
                     try:
-                        # 1. Capture (Raw BGRA)
-                        sct_img = sct.grab(monitor)
+                        mx, my = pyautogui.position()
+                        if (mx, my) != last_mouse_pos:
+                            last_mouse_pos = (mx, my)
+                            last_move_time = time.time()
 
-                        # 2. Convert to Numpy Array (Fast)
-                        # MSS returns BGRA, OpenCV uses BGR. Remove Alpha channel for speed.
-                        frame = np.array(sct_img)
-                        frame = cv2.cvtColor(frame, cv2.COLOR_BGRA2BGR)
+                        if time.time() - last_move_time < HIDE_TIMEOUT:
+                            # Boundary check
+                            if 0 <= mx < frame.shape[1] and 0 <= my < frame.shape[0]:
+                                cv2.circle(frame, (mx, my), 8, (0, 0, 255), -1)
+                                cv2.circle(frame, (mx, my), 9, (255, 255, 255), 1)
+                    except:
+                        pass
 
-                        # 3. Draw Mouse (Only if moved recently)
-                        try:
-                            mx, my = pyautogui.position()
-                            current_pos = (mx, my)
+                    # 3. Resize (Dynamic)
+                    if frame.shape[1] != target_w or frame.shape[0] != target_h:
+                        frame = cv2.resize(frame, (target_w, target_h), interpolation=cv2.INTER_LINEAR)
 
-                            # Check if mouse moved
-                            if current_pos != last_mouse_pos:
-                                last_mouse_pos = current_pos
-                                last_move_time = time.time()
+                    # 4. Encode
+                    success, buffer = cv2.imencode('.jpg', frame, encode_param)
 
-                            # Only draw if the timeout hasn't passed
-                            if time.time() - last_move_time < HIDE_TIMEOUT:
-                                rel_x = mx - mon_left
-                                rel_y = my - mon_top
+                    if success:
+                        b64_data = base64.b64encode(buffer).decode('utf-8')
+                        self._send_video_frame(b64_data)
 
-                                # Scaling check
-                                if 0 <= rel_x < sct_img.width and 0 <= rel_y < sct_img.height:
-                                    # Draw red circle
-                                    cv2.circle(frame, (rel_x, rel_y), 8, (0, 0, 255), -1)
-                                    cv2.circle(frame, (rel_x, rel_y), 9, (255, 255, 255), 1)
-                        except:
-                            pass
+                    # 5. Dynamic FPS Limiter
+                    elapsed = time.time() - start_time
+                    if elapsed < frame_duration:
+                        time.sleep(frame_duration - elapsed)
 
-                        # 4. Resize (Inter_Linear is fast enough)
-                        if frame.shape[1] != target_w or frame.shape[0] != target_h:
-                            frame = cv2.resize(frame, (target_w, target_h), interpolation=cv2.INTER_LINEAR)
+                except Exception as e:
+                    print(f"Cap error: {e}")
+                    time.sleep(0.1)
 
-                        # 5. Encode to JPEG
-                        success, buffer = cv2.imencode('.jpg', frame, encode_param)
-
-                        if success:
-                            # 6. Convert to Base64
-                            b64_data = base64.b64encode(buffer).decode('utf-8')
-                            self._send_video_frame(b64_data)
-
-                        # 7. FPS Limiter (Cap at 30 to save CPU for Network)
-                        elapsed = time.time() - start_time
-                        if elapsed < 0.033:
-                            time.sleep(0.033 - elapsed)
-
-                    except Exception as e:
-                        # Only log fatal errors, ignore glitches
-                        print(f"Cap error: {e}")
-                        time.sleep(0.1)
-
+            # Cleanup
+            del camera
             self._put("log", "🖥️ Screen capture stopped")
 
         except Exception as e:
@@ -1148,237 +1156,175 @@ class UnifiedRemoteServer:
         except Exception as e:
             self._put("log", f"❌ Send frame error: {e}")
 
-    def start_audio_streaming(self):
-
+    def start_audio_streaming(self, target_rate=48000):
         if self._streaming_audio:
             self._put("log", "🔊 Audio already streaming")
             return
 
         self._streaming_audio = True
 
+        # --- Helper: Get Windows Default IDs ---
+        def get_windows_audio_ids():
+            ids = {}
+            try:
+                import winreg
+                base_path = r"Software\Microsoft\Multimedia\Audio\DefaultRole"
+                for role in ["0", "1", "2"]:
+                    try:
+                        key_path = f"{base_path}\\{role}"
+                        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, key_path) as key:
+                            val, _ = winreg.QueryValueEx(key, "Device")
+                            ids[role] = val
+                    except:
+                        ids[role] = "unknown"
+            except:
+                pass
+            return ids
+
+        # --- Helper: Clean Name ---
         def clean_name(n: str) -> str:
-            # Normalize names for fuzzy matching
-            if not n:
-                return ""
+            if not n: return ""
             s = n.lower()
             for junk in ["[loopback]", "loopback", "(default)", "(default output)"]:
                 s = s.replace(junk, "")
-            s = s.replace("(", "").replace(")", "")
-            s = s.replace("-", " ").replace("_", " ").strip()
-            return " ".join(s.split())
+            return " ".join(s.replace("(", "").replace(")", "").replace("-", " ").replace("_", " ").split())
 
-        def find_best_loopback(pa, default_name):
-            """Try multiple strategies to find a matching loopback device."""
-            # Build lists
-            loopbacks = []
+        # --- Helper: Find Loopback ---
+        def find_best_loopback(pa_inst, default_name):
             try:
-                for lb in pa.get_loopback_device_info_generator():
-                    loopbacks.append(lb)
-            except Exception:
-                loopbacks = []
-
-            if not loopbacks:
+                loopbacks = [lb for lb in pa_inst.get_loopback_device_info_generator()]
+            except:
                 return None
 
-            defscore = []
-            clean_default = clean_name(default_name)
+            if not loopbacks: return None
+            clean_def = clean_name(default_name)
 
-            # 1) exact match (cleaned)
+            # Strategies
             for lb in loopbacks:
-                if clean_name(lb["name"]) == clean_default:
-                    return lb
-
-            # 2) case-insensitive substring (default in loopback)
+                if clean_name(lb["name"]) == clean_def: return lb
             for lb in loopbacks:
-                if clean_default in clean_name(lb["name"]) or clean_name(lb["name"]) in clean_default:
-                    return lb
-
-            # 3) partial token overlap (score)
-            tokens_def = set(clean_default.split())
-            best = None
-            best_score = 0
+                if clean_def in clean_name(lb["name"]): return lb
             for lb in loopbacks:
-                tokens_lb = set(clean_name(lb["name"]).split())
-                score = len(tokens_def.intersection(tokens_lb))
-                if score > best_score:
-                    best_score = score
-                    best = lb
-            if best_score > 0:
-                return best
-
-            # 4) fallback to first loopback
+                if clean_name(lb["name"]) in clean_def: return lb
             return loopbacks[0]
 
-        def audio_worker():
-            import time
-            import base64
-            import json
-            import pyaudiowpatch as pyaudio  # safe import here
+        # --- THE MANAGER THREAD ---
+        def audio_manager():
+            import time, base64, json, audioop
+            import pyaudiowpatch as pyaudio
 
-            pa = None
-            stream = None
-
-            # Keep the worker alive; if no suitable device, sleep and retry
-            while self._streaming_audio:
+            # 1. THE CALLBACK (Called automatically by Audio System)
+            # This runs in a separate C-thread. We must be fast here.
+            def audio_callback(in_data, frame_count, time_info, status):
                 try:
+                    # Calculate Volume for Diagnostics
+                    # (Optional: You can remove this print later)
+                    # rms = audioop.rms(in_data, 2)
+                    # if rms == 0: print("🔇 Silence")
+
+                    if len(self.clients) > 0:
+                        encoded = base64.b64encode(in_data).decode("utf-8")
+                        msg = json.dumps({
+                            "type": "audio_frame",
+                            "rate": current_rate,  # Uses variable from outer scope
+                            "payload": encoded
+                        })
+                        # Thread-safe send
+                        for c in list(self.clients):
+                            asyncio.run_coroutine_threadsafe(c.send(msg), self._loop)
+
+                    return (None, pyaudio.paContinue)
+                except Exception:
+                    return (None, pyaudio.paAbort)
+
+            # --- MAIN LOOP ---
+            current_ids = get_windows_audio_ids()
+
+            while self._streaming_audio:
+                pa = None
+                stream = None
+                try:
+                    # A. Initialize
                     pa = pyaudio.PyAudio()
 
-                    # Try to get default output name (may raise)
                     try:
                         default_info = pa.get_default_output_device_info()
-                        default_name = default_info.get("name", "")
-                    except Exception:
-                        default_name = ""
+                        default_name = default_info.get("name", "Unknown")
+                    except:
+                        default_name = "Unknown"
 
-                    self._put("log", f"🔊 Windows default output: {default_name}")
+                    self._put("log", f"🔊 Active: {default_name}")
 
-                    # Find best loopback (fuzzy)
+                    # B. Find Device
                     loopback = find_best_loopback(pa, default_name)
-
                     if loopback is None:
-                        self._put("log", "❌ No loopback devices found — retrying in 1s")
-                        try:
-                            pa.terminate()
-                        except:
-                            pass
+                        self._put("log", "❌ Retrying device search...")
+                        if pa: pa.terminate()
                         time.sleep(1.0)
                         continue
 
-                    # Use loopback native settings
-                    RATE = int(loopback.get("defaultSampleRate", 48000))
-                    CHANNELS = int(min(loopback.get("maxInputChannels", 2), 2))
-                    CHUNK = 2048
+                    # C. Config
+                    native_rate = int(loopback.get("defaultSampleRate", 44100))
+                    current_rate = int(target_rate)  # Used by callback
+                    channels = int(min(loopback.get("maxInputChannels", 2), 2))
 
-                    self._put("log", f"🎧 Capturing from: {loopback['name']}")
-                    self._put("log", f"🎵 Format: {RATE} Hz, {CHANNELS} ch")
-
-                    # Open stream (fail safe)
+                    # D. Start Stream (NON-BLOCKING)
                     try:
                         stream = pa.open(
                             format=pyaudio.paInt16,
-                            channels=CHANNELS,
-                            rate=RATE,
+                            channels=channels,
+                            rate=current_rate,
                             input=True,
                             input_device_index=loopback["index"],
-                            frames_per_buffer=CHUNK
+                            frames_per_buffer=2048,
+                            stream_callback=audio_callback  # <--- KEY CHANGE
                         )
-                    except Exception as e:
-                        self._put("log", f"❌ Failed to open loopback ({loopback['name']}): {e}")
-                        try:
-                            stream and stream.close()
-                        except:
-                            pass
-                        try:
-                            pa.terminate()
-                        except:
-                            pass
+                    except OSError:
+                        self._put("log", f"⚠️ Switching to {native_rate}Hz")
+                        current_rate = native_rate
+                        stream = pa.open(
+                            format=pyaudio.paInt16,
+                            channels=channels,
+                            rate=current_rate,
+                            input=True,
+                            input_device_index=loopback["index"],
+                            frames_per_buffer=2048,
+                            stream_callback=audio_callback
+                        )
+
+                    self._put("log", f"✅ Stream Started: {current_rate}Hz")
+                    stream.start_stream()
+
+                    # E. Monitor Loop (Main thread is now free!)
+                    # We just watch the registry here. No audio processing.
+                    while self._streaming_audio and stream.is_active():
                         time.sleep(1.0)
-                        continue
 
-                    self._audio_stream = stream
-                    self._put("log", "🎧 Audio streaming started")
+                        # Check for Switch
+                        new_ids = get_windows_audio_ids()
+                        if new_ids != current_ids:
+                            self._put("log", "🔄 Device Switch Detected!")
+                            current_ids = new_ids
+                            break  # Break loop to trigger clean restart
 
-                    frames = 0
-                    last_device_check = time.time()
-
-                    # Keep streaming even if 0 clients — do not exit immediately to avoid thrash
-                    while self._streaming_audio:
-                        try:
-                            # Periodically check if the loopback device still exists
-                            if time.time() - last_device_check >= 1.0:
-                                last_device_check = time.time()
-                                # Re-scan loopback names to ensure this device still present
-                                still_there = False
-                                try:
-                                    for lb in pa.get_loopback_device_info_generator():
-                                        if lb["index"] == loopback["index"]:
-                                            still_there = True
-                                            break
-                                except Exception:
-                                    still_there = True  # be permissive if API flaky
-
-                                if not still_there:
-                                    # device disappeared (e.g., user switched output)
-                                    self._put("log", f"🔄 Loopback disappeared: {loopback['name']}")
-                                    break  # restart outer worker to find new device
-
-                            # Read a chunk
-                            try:
-                                audio_data = stream.read(CHUNK, exception_on_overflow=False)
-                            except Exception as e:
-                                self._put("log", f"⚠️ Read error: {e}")
-                                break  # restart (or try re-open)
-
-                            # If no clients, don't spam sending — sleep shortly instead
-                            if len(self.clients) == 0:
-                                # Still keep reading to keep stream warmed up, but don't send
-                                time.sleep(0.02)  # tiny sleep to avoid CPU spin
-                                continue
-
-                            encoded_audio = base64.b64encode(audio_data).decode("utf-8")
-
-                            message = json.dumps({
-                                "type": "audio_frame",
-                                "rate": RATE,
-                                "channels": CHANNELS,
-                                "payload": encoded_audio
-                            })
-
-                            # Broadcast (best-effort)
-                            for c in list(self.clients):
-                                try:
-                                    asyncio.run_coroutine_threadsafe(c.send(message), self._loop)
-                                except Exception:
-                                    # ignore per-client send failures
-                                    pass
-
-                            frames += 1
-
-                        except Exception as e:
-                            self._put("log", f"⚠️ Stream loop error: {e}")
-                            break
-
-                    # cleanup after inner loop
-                    try:
-                        if stream:
-                            stream.stop_stream()
-                            stream.close()
-                    except:
-                        pass
-
-                    try:
-                        if pa:
-                            pa.terminate()
-                    except:
-                        pass
-
-                    self._put("log", "🔊 Audio streaming stopped")
-
-                    # gentle pause before trying to re-open to avoid tight restart loops
-                    time.sleep(0.5)
-                    continue
+                    # F. Cleanup (Safe now because we aren't blocked)
+                    stream.stop_stream()
+                    stream.close()
+                    pa.terminate()
 
                 except Exception as e:
-                    # fatal-ish, but keep worker alive and retry
-                    self._put("log", f"❌ Fatal worker error: {e}")
+                    self._put("log", f"❌ Audio Error: {e}")
+                    # Safety cleanup
                     try:
-                        if stream:
-                            stream.close()
-                    except:
-                        pass
-                    try:
-                        if pa:
-                            pa.terminate()
+                        if stream: stream.close()
+                        if pa: pa.terminate()
                     except:
                         pass
                     time.sleep(1.0)
-                    continue
 
-            # worker exit
-            self._put("log", "🔇 Audio worker exited")
+            self._put("log", "🔇 Audio Stopped")
 
-        # launch thread
-        self._audio_thread = threading.Thread(target=audio_worker, daemon=True)
+        self._audio_thread = threading.Thread(target=audio_manager, daemon=True)
         self._audio_thread.start()
 
     def stop_audio_streaming(self):
@@ -1429,18 +1375,18 @@ class UnifiedRemoteServer:
 
     def _handle_mouse_click(self, payload):
         """
-        Handle mouse click, down, and up events using Windows native API.
-        Supports Dragging.
+        Handle mouse clicks with delays (Required for Games).
         """
         try:
             import ctypes
             import json
+            import time
+            import platform
 
             event = json.loads(payload)
             button_id = event.get("button", 0)
 
-            # Check for explicit action (default to 'click' for backward compatibility)
-            # The Android app now sends "down" or "up" for dragging
+            # "action" can be: "down", "up", or "click" (default)
             action = event.get("action", "click")
 
             # Windows Constants
@@ -1459,7 +1405,10 @@ class UnifiedRemoteServer:
                     elif action == "up":
                         ctypes.windll.user32.mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, 0)
                     else:  # "click" (Full press)
+                        # FIX: Add delay so games register the shot
                         ctypes.windll.user32.mouse_event(MOUSEEVENTF_LEFTDOWN, 0, 0, 0, 0)
+                        if self.gaming_mode:
+                            time.sleep(0.04)  # 40ms wait (Standard gaming mouse speed)
                         ctypes.windll.user32.mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, 0)
 
                 # --- RIGHT BUTTON ---
@@ -1470,6 +1419,8 @@ class UnifiedRemoteServer:
                         ctypes.windll.user32.mouse_event(MOUSEEVENTF_RIGHTUP, 0, 0, 0, 0)
                     else:
                         ctypes.windll.user32.mouse_event(MOUSEEVENTF_RIGHTDOWN, 0, 0, 0, 0)
+                        if self.gaming_mode:
+                            time.sleep(0.04)  # 40ms wait
                         ctypes.windll.user32.mouse_event(MOUSEEVENTF_RIGHTUP, 0, 0, 0, 0)
 
                 # --- MIDDLE BUTTON ---
@@ -1480,10 +1431,12 @@ class UnifiedRemoteServer:
                         ctypes.windll.user32.mouse_event(MOUSEEVENTF_MIDDLEUP, 0, 0, 0, 0)
                     else:
                         ctypes.windll.user32.mouse_event(MOUSEEVENTF_MIDDLEDOWN, 0, 0, 0, 0)
+                        if self.gaming_mode:
+                            time.sleep(0.04)  # 40ms wait
                         ctypes.windll.user32.mouse_event(MOUSEEVENTF_MIDDLEUP, 0, 0, 0, 0)
 
             else:
-                # Fallback for Linux/Mac (PyAutoGUI)
+                # Fallback for Linux/Mac
                 import pyautogui
                 button_map = {0: "left", 1: "right", 2: "middle"}
                 button = button_map.get(button_id, "left")
@@ -1522,108 +1475,91 @@ class UnifiedRemoteServer:
             self._put("log", f"❌ Scroll error: {e}")
 
     def _handle_key_press(self, payload):
-        """Handle keyboard input using Windows native API (instant response)."""
+        """Handle keyboard input with Scan Codes (Required for Games)."""
         try:
             import platform
+            import time
+            import ctypes
+
             event = json.loads(payload)
             key = event.get("key", "")
             modifiers = event.get("modifiers", [])
 
             key_lower = key.lower()
 
-            # --- BRIGHTNESS HANDLER (ADD THIS BLOCK) ---
+            # --- BRIGHTNESS HANDLER ---
             if key_lower in ["brightnessup", "brightnessdown"]:
                 try:
                     import screen_brightness_control as sbc
-
-                    # Get current brightness (returns list, get first display)
                     current_list = sbc.get_brightness()
                     if current_list:
                         current = current_list[0]
+                        new_val = min(100, current + 10) if key_lower == "brightnessup" else max(0, current - 10)
+                        threading.Thread(target=lambda: sbc.set_brightness(new_val)).start()
+                except:
+                    pass
+                return
 
-                        if key_lower == "brightnessup":
-                            new_val = min(100, current + 10)  # Increase by 10%
-                        else:
-                            new_val = max(0, current - 10)  # Decrease by 10%
-
-                        sbc.set_brightness(new_val)
-                        self._put("log", f"💡 Brightness set to {new_val}%")
-                    return  # Exit function, we are done
-                except ImportError:
-                    self._put("log", "❌ Install 'screen-brightness-control' for brightness support")
-                    return
-                except Exception as e:
-                    self._put("log", f"❌ Brightness Error: {e}")
-                    return
-
-
-            # --- FIX: Auto-Shift for Uppercase Letters ---
-            # If Android sends "A", we treat it as "Shift + a"
-            # This ensures Caps works regardless of the PC's actual Caps Lock state
+            # --- AUTO-SHIFT FIX ---
             if len(key) == 1 and key.isupper() and key.isalpha():
-                # Add shift to modifiers if not already there
                 if "shift" not in [m.lower() for m in modifiers]:
                     modifiers.append("shift")
-            # ---------------------------------------------
 
             if platform.system() == "Windows":
-                import ctypes
-
                 # Virtual-Key Codes
                 VK_MAP = {
-                    # Letters
                     'a': 0x41, 'b': 0x42, 'c': 0x43, 'd': 0x44, 'e': 0x45,
                     'f': 0x46, 'g': 0x47, 'h': 0x48, 'i': 0x49, 'j': 0x4A,
                     'k': 0x4B, 'l': 0x4C, 'm': 0x4D, 'n': 0x4E, 'o': 0x4F,
                     'p': 0x50, 'q': 0x51, 'r': 0x52, 's': 0x53, 't': 0x54,
                     'u': 0x55, 'v': 0x56, 'w': 0x57, 'x': 0x58, 'y': 0x59, 'z': 0x5A,
-                    # Numbers
                     '0': 0x30, '1': 0x31, '2': 0x32, '3': 0x33, '4': 0x34,
                     '5': 0x35, '6': 0x36, '7': 0x37, '8': 0x38, '9': 0x39,
-                    # Special keys
                     'backspace': 0x08, 'tab': 0x09, 'enter': 0x0D, 'esc': 0x1B,
                     'space': 0x20, 'caps': 0x14, 'caps lock': 0x14,
                     '←': 0x25, '↑': 0x26, '→': 0x27, '↓': 0x28,
-                    # Modifiers
-                    'shift': 0x10, 'ctrl': 0x11, 'alt': 0x12, 'meta': 0x5B,
-                    'win': 0x5B, 'menu': 0x5D,'brightnessup': None,
-                    # Windows doesn't always have a direct VK for this via keybd_event easily
-                    'brightnessdown': None,
-                    # but some laptops use special driver keys.
+                    'shift': 0x10, 'ctrl': 0x11, 'alt': 0x12, 'meta': 0x5B, 'win': 0x5B
                 }
 
-                # Normalize key input for lookup
-                key_lower = key.lower()
                 vk_code = VK_MAP.get(key_lower, 0)
 
                 if vk_code:
-                    # 1. Press modifiers
+                    # FIX 1: Get Hardware Scan Code (Essential for Games)
+                    scan_code = ctypes.windll.user32.MapVirtualKeyW(vk_code, 0)
+
+                    # Press Modifiers (Ctrl, Alt, Shift)
                     for mod in modifiers:
                         mod_vk = VK_MAP.get(mod.lower(), 0)
                         if mod_vk:
-                            ctypes.windll.user32.keybd_event(mod_vk, 0, 0, 0)
+                            mod_scan = ctypes.windll.user32.MapVirtualKeyW(mod_vk, 0)
+                            ctypes.windll.user32.keybd_event(mod_vk, mod_scan, 0, 0)
 
-                    # 2. Press main key
-                    ctypes.windll.user32.keybd_event(vk_code, 0, 0, 0)  # Down
-                    ctypes.windll.user32.keybd_event(vk_code, 0, 2, 0)  # Up
+                    # Press Main Key
+                    ctypes.windll.user32.keybd_event(vk_code, scan_code, 0, 0)  # Down
 
-                    # 3. Release modifiers
+                    # FIX 2: Hold for 30ms (Games need time to detect input)
+                    if self.gaming_mode:
+                        time.sleep(0.03)
+
+                    ctypes.windll.user32.keybd_event(vk_code, scan_code, 2, 0)  # Up
+
+                    # Release Modifiers
                     for mod in reversed(modifiers):
                         mod_vk = VK_MAP.get(mod.lower(), 0)
                         if mod_vk:
-                            ctypes.windll.user32.keybd_event(mod_vk, 0, 2, 0)
+                            mod_scan = ctypes.windll.user32.MapVirtualKeyW(mod_vk, 0)
+                            ctypes.windll.user32.keybd_event(mod_vk, mod_scan, 2, 0)
                 else:
-                    # Fallback
+                    # Fallback for keys not in map (Volume, Media, etc.)
                     import pyautogui
                     if key_lower == 'caps': key_lower = 'capslock'
-
                     if modifiers:
                         pyautogui.hotkey(*[m.lower() for m in modifiers] + [key_lower])
                     else:
                         pyautogui.press(key_lower)
 
             else:
-                # Non-Windows fallback
+                # Linux/Mac fallback (PyAutoGUI usually works fine on Linux games)
                 import pyautogui
                 key_map = {
                     "Backspace": "backspace", "Enter": "enter", "Space": "space",
@@ -1852,93 +1788,76 @@ class UDPMouseServer(threading.Thread):
         self.running = False
 
 
-class SettingsDialog(tk.Toplevel):
+class SettingsDialog(ctk.CTkToplevel):
     def __init__(self, parent, prefs, callback_save):
         super().__init__(parent)
         self.title("Settings")
         self.geometry("400x550")
-        self.configure(bg="#2d2d2d")
         self.prefs = prefs
         self.callback_save = callback_save
-        self.transient(parent)  # Keep on top of main window
 
-        # Style
-        lbl_style = {"bg": "#2d2d2d", "fg": "white", "font": ("Segoe UI", 10)}
+        # Modal behavior
+        self.transient(parent)
+        self.grab_set()
 
-        # --- 1. GENERAL SETTINGS ---
-        frame_gen = tk.LabelFrame(self, text="General", bg="#2d2d2d", fg="#00e676", font=("Segoe UI", 10, "bold"))
-        frame_gen.pack(fill="x", padx=10, pady=10)
+        # Layout container
+        self.grid_columnconfigure(0, weight=1)
 
-        # Auto-start PC
-        self.var_autostart_pc = tk.BooleanVar(value=prefs.get("autostart_pc", False))
-        tk.Checkbutton(frame_gen, text="Start app when computer starts", variable=self.var_autostart_pc,
-                       bg="#2d2d2d", fg="white", selectcolor="#2d2d2d", activebackground="#2d2d2d").pack(anchor="w",
-                                                                                                         padx=5)
+        # Title
+        ctk.CTkLabel(self, text="Configuration", font=("Segoe UI", 20, "bold")).pack(pady=(20, 10))
 
-        # Auto-start Server
-        self.var_autostart_server = tk.BooleanVar(value=prefs.get("autostart_server", False))
-        tk.Checkbutton(frame_gen, text="Auto-start server when app opens", variable=self.var_autostart_server,
-                       bg="#2d2d2d", fg="white", selectcolor="#2d2d2d", activebackground="#2d2d2d").pack(anchor="w",
-                                                                                                         padx=5)
+        # --- GENERAL SETTINGS ---
+        frame_gen = ctk.CTkFrame(self)
+        frame_gen.pack(fill="x", padx=20, pady=10)
 
-        # Admin Rights
-        self.var_admin = tk.BooleanVar(value=prefs.get("run_as_admin", False))
-        tk.Checkbutton(frame_gen, text="Request Admin Rights (Task Manager fix)", variable=self.var_admin,
-                       bg="#2d2d2d", fg="white", selectcolor="#2d2d2d", activebackground="#2d2d2d").pack(anchor="w",
-                                                                                                         padx=5)
+        ctk.CTkLabel(frame_gen, text="General", font=("Segoe UI", 14, "bold"), text_color="#00e676").pack(anchor="w",
+                                                                                                          padx=15,
+                                                                                                          pady=(10, 5))
 
-        # Port
-        tk.Frame(frame_gen, height=1, bg="#444").pack(fill="x", pady=5)
-        f_port = tk.Frame(frame_gen, bg="#2d2d2d")
-        f_port.pack(fill="x", padx=5)
-        tk.Label(f_port, text="Server Port:", **lbl_style).pack(side="left")
-        self.ent_port = tk.Entry(f_port, width=8, bg="#3d3d3d", fg="white", insertbackground="white")
+        self.var_autostart_pc = ctk.BooleanVar(value=prefs.get("autostart_pc", False))
+        ctk.CTkSwitch(frame_gen, text="Auto-start with Windows", variable=self.var_autostart_pc).pack(anchor="w",
+                                                                                                      padx=15, pady=5)
+
+        self.var_autostart_server = ctk.BooleanVar(value=prefs.get("autostart_server", False))
+        ctk.CTkSwitch(frame_gen, text="Auto-start Server on launch", variable=self.var_autostart_server).pack(
+            anchor="w", padx=15, pady=5)
+
+        self.var_admin = ctk.BooleanVar(value=prefs.get("run_as_admin", False))
+        ctk.CTkSwitch(frame_gen, text="Request Admin Rights", variable=self.var_admin).pack(anchor="w", padx=15,
+                                                                                            pady=(5, 15))
+
+        # --- GAMING SETTINGS ---
+        frame_input = ctk.CTkFrame(self)
+        frame_input.pack(fill="x", padx=20, pady=10)
+
+        ctk.CTkLabel(frame_input, text="Input & Gaming", font=("Segoe UI", 14, "bold"), text_color="#00e676").pack(
+            anchor="w", padx=15, pady=(10, 5))
+
+        self.var_gaming_mode = ctk.BooleanVar(value=prefs.get("gaming_mode", True))
+        ctk.CTkSwitch(frame_input, text="Gaming Mode (Low Latency)", variable=self.var_gaming_mode).pack(anchor="w",
+                                                                                                         padx=15,
+                                                                                                         pady=(5, 0))
+
+        ctk.CTkLabel(frame_input,
+                     text="Adds micro-delays so games detect input.\nDisable for faster desktop typing.",
+                     font=("Segoe UI", 11), text_color="gray").pack(anchor="w", padx=55, pady=(0, 15))
+
+        # --- PORT ---
+        frame_net = ctk.CTkFrame(self)
+        frame_net.pack(fill="x", padx=20, pady=10)
+
+        ctk.CTkLabel(frame_net, text="Server Port:", font=("Segoe UI", 12, "bold")).pack(side="left", padx=15)
+        self.ent_port = ctk.CTkEntry(frame_net, width=80, placeholder_text="8080")
         self.ent_port.insert(0, str(prefs.get("port", 8080)))
-        self.ent_port.pack(side="right")
+        self.ent_port.pack(side="right", padx=15, pady=10)
 
-        # --- 2. ABOUT & UPDATES ---
-        frame_about = tk.LabelFrame(self, text="About", bg="#2d2d2d", fg="#00e676", font=("Segoe UI", 10, "bold"))
-        frame_about.pack(fill="x", padx=10, pady=10)
-
-        tk.Label(frame_about, text=f"Current Version: {APP_VERSION}", **lbl_style).pack(anchor="w", padx=5, pady=2)
-
-        btn_frame = tk.Frame(frame_about, bg="#2d2d2d")
-        btn_frame.pack(fill="x", pady=5)
-
-        tk.Button(btn_frame, text="GitHub Page", bg="#3d3d3d", fg="white", relief="flat",
-                  command=lambda: webbrowser.open(GITHUB_URL)).pack(side="left", padx=5)
-
-        tk.Button(btn_frame, text="Check for Updates", bg="#2196f3", fg="white", relief="flat",
-                  command=self.check_update).pack(side="right", padx=5)
-
-        # --- SAVE BUTTONS ---
-        frame_b = tk.Frame(self, bg="#2d2d2d")
-        frame_b.pack(side="bottom", fill="x", pady=15)
-        tk.Button(frame_b, text="Save & Close", bg="#00e676", fg="black", font=("Segoe UI", 10, "bold"),
-                  command=self.save_and_close).pack(pady=5, ipadx=20)
-
-    def check_update(self):
-        """Simple check against GitHub releases API."""
-        try:
-            api_url = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
-            req = urllib.request.Request(api_url, headers={'User-Agent': 'Mozilla/5.0'})
-            with urllib.request.urlopen(req) as response:
-                data = json.load(response)
-                latest_tag = data.get("tag_name", "").replace("v", "")
-
-                # Basic string compare (ideally use packaging.version)
-                if latest_tag != APP_VERSION:
-                    ans = messagebox.askyesno("Update Available",
-                                              f"New version {latest_tag} is available!\n\nOpen download page?")
-                    if ans:
-                        webbrowser.open(data.get("html_url", GITHUB_URL))
-                else:
-                    messagebox.showinfo("Up to Date", "You are using the latest version.")
-        except Exception as e:
-            messagebox.showerror("Error", f"Could not check for updates:\n{e}")
+        # --- SAVE BUTTON ---
+        ctk.CTkButton(self, text="Save & Close", fg_color="#00e676", text_color="black", hover_color="#00c853",
+                      height=40, font=("Segoe UI", 14, "bold"), command=self.save_and_close).pack(fill="x", padx=20,
+                                                                                                  pady=20,
+                                                                                                  side="bottom")
 
     def save_and_close(self):
-        # Validate Port
         try:
             port = int(self.ent_port.get())
             if not (1024 <= port <= 65535): raise ValueError
@@ -1950,35 +1869,35 @@ class SettingsDialog(tk.Toplevel):
             "autostart_pc": self.var_autostart_pc.get(),
             "autostart_server": self.var_autostart_server.get(),
             "run_as_admin": self.var_admin.get(),
+            "gaming_mode": self.var_gaming_mode.get(),
             "port": port
         }
         self.callback_save(new_prefs)
         self.destroy()
 
 
+
+
 class ServerGUI:
     def __init__(self):
-        self.root = tk.Tk()
+        # 1. Main Window Setup
+        self.root = ctk.CTk()
         self.root.title(f"Use As Server v{APP_VERSION}")
-        self.root.geometry("600x850")
-        self.root.configure(bg="#1e1e1e")
+        self.root.geometry("900x700")
 
-        # Tray Icon variable
+        # 2. State & Prefs
         self.tray_icon = None
-
-        # --- LOAD PREFERENCES ---
         self.prefs = {
             "autostart_pc": False,
             "autostart_server": False,
             "run_as_admin": False,
+            "gaming_mode": True,
             "port": 8080
         }
         self.load_preferences()
 
-
         try:
-            if Path("icon.ico").exists():
-                self.root.iconbitmap("icon.ico")
+            if Path("icon.ico").exists(): self.root.iconbitmap("icon.ico")
         except:
             pass
 
@@ -1986,21 +1905,57 @@ class ServerGUI:
         self.server = None
         self.is_running = False
 
+        # 3. Build UI
         self.setup_ui()
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
 
-        # --- AUTO START SERVER LOGIC ---
+        # 4. Auto-Start Logic
         if self.prefs["autostart_server"]:
             self.root.after(1000, self.toggle_server)
 
         self.root.after(100, self.process_queue)
         self.root.after(50, self.update_preview)
 
+    # --- MISSING FUNCTION ADDED HERE ---
+    def open_settings(self):
+        SettingsDialog(self.root, self.prefs, self.save_preferences)
+
+    # --- HELPERS ---
+    def load_preferences(self):
+        try:
+            if SETTINGS_FILE.exists():
+                with open(SETTINGS_FILE, 'r') as f: self.prefs.update(json.load(f))
+        except:
+            pass
+
+    def save_preferences(self, new_prefs=None):
+        if new_prefs: self.prefs = new_prefs
+        try:
+            SETTINGS_FILE.parent.mkdir(parents=True, exist_ok=True)
+            with open(SETTINGS_FILE, 'w') as f:
+                json.dump(self.prefs, f, indent=4)
+        except:
+            pass
+        if sys.platform == "win32":
+            try:
+                key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\Run", 0,
+                                     winreg.KEY_SET_VALUE)
+                app_path = sys.executable if getattr(sys, 'frozen', False) else f'"{sys.executable}" "{__file__}"'
+                if self.prefs["autostart_pc"]:
+                    winreg.SetValueEx(key, "UseAsServer", 0, winreg.REG_SZ, app_path)
+                else:
+                    try:
+                        winreg.DeleteValue(key, "UseAsServer")
+                    except:
+                        pass
+                winreg.CloseKey(key)
+            except:
+                pass
+
     def create_default_icon(self):
-        """Generates a simple green box icon if icon.ico is missing."""
-        width = 64
-        height = 64
-        color1 = "#00e676"
+        width = 64;
+        height = 64;
+        color1 = "#00e676";
         color2 = "#1e1e1e"
         image = Image.new('RGB', (width, height), color1)
         dc = ImageDraw.Draw(image)
@@ -2008,493 +1963,329 @@ class ServerGUI:
         return image
 
     def minimize_to_tray(self):
-        """Hide window and show system tray icon."""
-        self.root.withdraw()  # Hide the main window
-
-        image = None
-        try:
-            if Path("icon.ico").exists():
-                image = Image.open("icon.ico")
-            else:
-                image = self.create_default_icon()
-        except:
-            image = self.create_default_icon()
-
-        # Define Tray Menu
-        menu = (
-            item('Restore', self.restore_from_tray, default=True),
-            item('Stop Server & Quit', self.quit_app)
-        )
-
+        self.root.withdraw()
+        image = Image.open("icon.ico") if Path("icon.ico").exists() else self.create_default_icon()
+        menu = (item('Restore', self.restore_from_tray, default=True), item('Stop Server & Quit', self.quit_app))
         self.tray_icon = pystray.Icon("UseAsServer", image, "Use As Server", menu)
-        # Run detached so it doesn't block the Tkinter loop
         self.tray_icon.run_detached()
 
     def restore_from_tray(self, icon=None, item=None):
-        """Stop tray icon and show window."""
-        if self.tray_icon:
-            self.tray_icon.stop()
-            self.tray_icon = None
-
-        self.root.after(0, self.root.deiconify)  # Show window safely
+        if self.tray_icon: self.tray_icon.stop(); self.tray_icon = None
+        self.root.after(0, self.root.deiconify)
 
     def quit_app(self, icon=None, item=None):
-        """Clean shutdown from tray."""
-        if self.tray_icon:
-            self.tray_icon.stop()
+        if self.tray_icon: self.tray_icon.stop()
         self.root.after(0, self.on_closing)
 
-    def load_preferences(self):
-        try:
-            if SETTINGS_FILE.exists():
-                with open(SETTINGS_FILE, 'r') as f:
-                    data = json.load(f)
-                    self.prefs.update(data)
-        except Exception as e:
-            print(f"Error loading prefs: {e}")
-
-    def save_preferences(self, new_prefs=None):
-        """Save JSON and Apply System Changes (Registry)."""
-        if new_prefs:
-            self.prefs = new_prefs
-
-        # 1. Save JSON
-        try:
-            SETTINGS_FILE.parent.mkdir(parents=True, exist_ok=True)
-            with open(SETTINGS_FILE, 'w') as f:
-                json.dump(self.prefs, f, indent=4)
-        except Exception as e:
-            print(f"Error saving json: {e}")
-
-        # 2. Apply Windows Registry Changes (Auto-start PC)
-        if sys.platform == "win32":
-            try:
-                key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\Run", 0,
-                                     winreg.KEY_SET_VALUE)
-                app_path = sys.executable if getattr(sys, 'frozen', False) else f'"{sys.executable}" "{__file__}"'
-
-                if self.prefs["autostart_pc"]:
-                    winreg.SetValueEx(key, "UseAsServer", 0, winreg.REG_SZ, app_path)
-                else:
-                    try:
-                        winreg.DeleteValue(key, "UseAsServer")
-                    except FileNotFoundError:
-                        pass  # Key didn't exist, which is fine
-                winreg.CloseKey(key)
-            except Exception as e:
-                print(f"Registry Error: {e}")
-
-    def open_settings(self):
-        SettingsDialog(self.root, self.prefs, self.save_preferences)
-
+    # --- UI SETUP ---
     def setup_ui(self):
-        style = ttk.Style()
-        style.theme_use('clam')
-        style.configure("TNotebook", background="#1e1e1e", borderwidth=0)
-        style.configure("TNotebook.Tab", background="#2d2d2d", foreground="white", padding=[15, 5])
-        style.map("TNotebook.Tab", background=[("selected", "#00e676")], foreground=[("selected", "#000")])
-        style.configure("TFrame", background="#1e1e1e")
+        self.root.grid_columnconfigure(1, weight=1)
+        self.root.grid_rowconfigure(0, weight=1)
 
-        self.notebook = ttk.Notebook(self.root)
-        self.notebook.pack(fill='both', expand=True, padx=10, pady=10)
+        # 1. SIDEBAR
+        self.sidebar = ctk.CTkFrame(self.root, width=140, corner_radius=0)
+        self.sidebar.grid(row=0, column=0, sticky="nsew")
 
-        self.tab_dashboard = ttk.Frame(self.notebook)
-        self.notebook.add(self.tab_dashboard, text="  Dashboard  ")
-        self.build_dashboard(self.tab_dashboard)
+        ctk.CTkLabel(self.sidebar, text="Use As\nServer", font=("Segoe UI", 24, "bold"), text_color="#00e676").pack(
+            pady=30)
 
-        self.tab_sharing = ttk.Frame(self.notebook)
-        self.notebook.add(self.tab_sharing, text="  Sharing  ")
-        self.build_sharing(self.tab_sharing)
+        self.btn_nav_dash = ctk.CTkButton(self.sidebar, text="Dashboard", fg_color="transparent", border_width=2,
+                                          text_color=("gray10", "#DCE4EE"),
+                                          command=lambda: self.tabview.set("Dashboard"))
+        self.btn_nav_dash.pack(pady=10, padx=20, fill="x")
 
-        self.tab_cam = ttk.Frame(self.notebook)
-        self.notebook.add(self.tab_cam, text=" 📷 Camera Studio ")
-        self.build_camera_studio()
+        self.btn_nav_cam = ctk.CTkButton(self.sidebar, text="Camera Studio", fg_color="transparent", border_width=2,
+                                         text_color=("gray10", "#DCE4EE"),
+                                         command=lambda: self.tabview.set("Camera"))
+        self.btn_nav_cam.pack(pady=10, padx=20, fill="x")
 
-    def build_camera_studio(self):
-        p = self.tab_cam
+        self.btn_nav_share = ctk.CTkButton(self.sidebar, text="Sharing", fg_color="transparent", border_width=2,
+                                           text_color=("gray10", "#DCE4EE"),
+                                           command=lambda: self.tabview.set("Sharing"))
+        self.btn_nav_share.pack(pady=10, padx=20, fill="x")
 
-        # --- LEFT: CONTROLS ---
-        left_panel = tk.Frame(p, bg="#1e1e1e", width=250)
-        left_panel.pack(side="left", fill="y", padx=10, pady=10)
+        ctk.CTkLabel(self.sidebar, text=f"v{APP_VERSION}", text_color="gray").pack(side="bottom", pady=20)
 
-        # 1. Output Resolution
-        lf_res = tk.LabelFrame(left_panel, text="Resolution / Aspect Ratio", bg="#1e1e1e", fg="white")
-        lf_res.pack(fill="x", pady=5)
+        # 2. MAIN TABS
+        self.tabview = ctk.CTkTabview(self.root, fg_color="transparent")
+        self.tabview.grid(row=0, column=1, padx=20, pady=10, sticky="nsew")
 
-        self.combo_res = ttk.Combobox(lf_res, values=[
-            "1280x720 (16:9) - Standard",
-            "1920x1080 (16:9) - Full HD",
-            "800x600 (4:3) - Old School",
-            "1024x768 (4:3) - Standard 4:3",
-            "720x720 (1:1) - Square"
-        ], state="readonly")
-        self.combo_res.current(0)
-        self.combo_res.pack(fill="x", padx=5, pady=5)
-        self.combo_res.bind("<<ComboboxSelected>>", self.change_aspect_ratio)
+        self.tabview.add("Dashboard")
+        self.tabview.add("Camera")
+        self.tabview.add("Sharing")
 
-        # 2. Background Settings
-        lf_bg = tk.LabelFrame(left_panel, text="Background Effects", bg="#1e1e1e", fg="white")
-        lf_bg.pack(fill="x", pady=5)
-
-        self.var_bg = tk.StringVar(value="none")
-        tk.Radiobutton(lf_bg, text="None", variable=self.var_bg, value="none",
-                       bg="#1e1e1e", fg="white", selectcolor="#2d2d2d", command=self.update_cam_settings).pack(
-            anchor="w")
-        tk.Radiobutton(lf_bg, text="Blur", variable=self.var_bg, value="blur",
-                       bg="#1e1e1e", fg="white", selectcolor="#2d2d2d", command=self.update_cam_settings).pack(
-            anchor="w")
-        tk.Radiobutton(lf_bg, text="Replace Image", variable=self.var_bg, value="image",
-                       bg="#1e1e1e", fg="white", selectcolor="#2d2d2d", command=self.update_cam_settings).pack(
-            anchor="w")
-
-        tk.Button(lf_bg, text="Select Image...", bg="#3d3d3d", fg="white",
-                  command=self.select_bg_image).pack(fill="x", padx=5, pady=5)
-
-        # 3. Picture Settings
-        lf_pic = tk.LabelFrame(left_panel, text="Picture Adjust", bg="#1e1e1e", fg="white")
-        lf_pic.pack(fill="x", pady=5)
-
-        self.var_mirror = tk.BooleanVar(value=False)
-        self.var_flip = tk.BooleanVar(value=False)
-
-        tk.Checkbutton(lf_pic, text="Mirror Video", variable=self.var_mirror,
-                       bg="#1e1e1e", fg="white", selectcolor="#2d2d2d", command=self.update_cam_settings).pack(
-            anchor="w")
-        tk.Checkbutton(lf_pic, text="Flip Vertically", variable=self.var_flip,
-                       bg="#1e1e1e", fg="white", selectcolor="#2d2d2d", command=self.update_cam_settings).pack(
-            anchor="w")
-
-        tk.Label(lf_pic, text="Brightness Boost", bg="#1e1e1e", fg="gray").pack(anchor="w", pady=(5, 0))
-        self.scale_bright = tk.Scale(lf_pic, from_=-100, to=100, orient="horizontal",
-                                     bg="#1e1e1e", fg="white", highlightthickness=0,
-                                     command=lambda x: self.update_cam_settings())
-        self.scale_bright.set(0)
-        self.scale_bright.pack(fill="x")
-
-        # 4. Output Buttons (UPDATED PART)
-        lf_out = tk.LabelFrame(left_panel, text="Output", bg="#1e1e1e", fg="white")
-        lf_out.pack(fill="x", pady=5)
-
-        # Save these to 'self' variables so we can change text later
-        self.btn_cs_obs = tk.Button(lf_out, text="Start OBS Camera", bg="#9c27b0", fg="white",
-                                    command=lambda: self.toggle_camera("OBS Virtual Camera"))
-        self.btn_cs_obs.pack(fill="x", pady=2)
-
-        self.btn_cs_unity = tk.Button(lf_out, text="Start Unity Camera", bg="#673ab7", fg="white",
-                                      command=lambda: self.toggle_camera("Unity Video Capture"))
-        self.btn_cs_unity.pack(fill="x", pady=2)
-
-        # --- RIGHT: PREVIEW ---
-        right_panel = tk.Frame(p, bg="#000000")
-        right_panel.pack(side="right", fill="both", expand=True, padx=10, pady=10)
-
-        self.lbl_preview = tk.Label(right_panel, text="Waiting for connection...", bg="black", fg="gray")
-        self.lbl_preview.place(relx=0.5, rely=0.5, anchor="center")
-
-    def change_aspect_ratio(self, event=None):
-        if not self.server: return
-
-        # Parse the selection string like "1280x720 (16:9)..."
-        selection = self.combo_res.get()
-        try:
-            res_part = selection.split(" ")[0]  # "1280x720"
-            w_str, h_str = res_part.split("x")
-            new_w = int(w_str)
-            new_h = int(h_str)
-
-            # Update Server Variables
-            self.server.target_w = new_w
-            self.server.target_h = new_h
-
-            print(f"Resolution changed to {new_w}x{new_h}")
-
-            # Restart VCam if running to apply new resolution
-            if self.server._vcam_running:
-                # Find which device was active (OBS or Unity)
-                # We can just restart with the current VCam device if stored,
-                # or just stop it and let user restart.
-                # Auto-restart logic:
-                current_device = self.server._vcam.device
-                self.server.stop_virtual_camera()
-                # Tiny delay to allow cleanup
-                self.root.after(500, lambda: self.server.start_virtual_camera(current_device))
-
-        except Exception as e:
-            print(f"Error changing resolution: {e}")
-
-
+        self.build_dashboard(self.tabview.tab("Dashboard"))
+        self.build_camera(self.tabview.tab("Camera"))
+        self.build_sharing(self.tabview.tab("Sharing"))
 
     def build_dashboard(self, parent):
-        # Header
-        header = tk.Frame(parent, bg="#1e1e1e")
-        header.pack(fill='x', pady=20)
+        # Server Status Card
+        card = ctk.CTkFrame(parent)
+        card.pack(fill="x", pady=10)
 
-        tk.Label(header, text="Use As Server", font=("Segoe UI", 24, "bold"), bg="#1e1e1e", fg="white").pack(side="left", padx=20)
+        self.lbl_status = ctk.CTkLabel(card, text="🔴 Offline", font=("Segoe UI", 22, "bold"), text_color="#cf6679")
+        self.lbl_status.pack(pady=(20, 5))
 
-        # BUTTONS FRAME (Settings + Tray)
-        btn_box = tk.Frame(header, bg="#1e1e1e")
-        btn_box.pack(side="right", padx=20)
+        self.ent_ip = ctk.CTkEntry(card, justify="center", placeholder_text="Waiting for start...", width=300,
+                                   font=("Consolas", 14), state="readonly")
+        self.ent_ip.pack(pady=5)
 
-        # 1. Tray Button (NEW)
-        tk.Button(btn_box, text="⬇️Minimize to Tray", font=("Segoe UI", 9), bg="#3d3d3d", fg="white",
-                  relief='flat', command=self.minimize_to_tray).pack(side="left", padx=5)
+        self.btn_start = ctk.CTkButton(card, text="START SERVER", font=("Segoe UI", 14, "bold"), height=45,
+                                       fg_color="#00e676", text_color="black", hover_color="#00c853",
+                                       command=self.toggle_server)
+        self.btn_start.pack(pady=20)
 
-        # 2. Settings Button
-        tk.Button(btn_box, text="⚙️ Settings", font=("Segoe UI", 9), bg="#3d3d3d", fg="white",
-                  relief='flat', command=self.open_settings).pack(side="left", padx=5)
+        # Quick Actions
+        card_act = ctk.CTkFrame(parent, fg_color="transparent")
+        card_act.pack(fill="x", pady=5)
 
-        # Status
-        self.status_label = tk.Label(parent, text="🔴 Offline", font=("Segoe UI", 10), bg="#2d2d2d",
-                                     fg="#cf6679", padx=10, pady=5)
-        self.status_label.pack(pady=10)
+        self.btn_tray = ctk.CTkButton(card_act, text="Minimize to Tray", command=self.minimize_to_tray,
+                                      fg_color="#2d2d2d")
+        self.btn_tray.pack(side="left", fill="x", expand=True, padx=(0, 5))
 
-        self.ip_var = tk.StringVar(value="Not Running")
-        tk.Entry(parent, textvariable=self.ip_var, font=("Consolas", 12), justify='center', bg="#2d2d2d",
-                 fg="#00e676", relief='flat', state='readonly').pack(pady=5, ipadx=10, ipady=5)
+        self.btn_settings = ctk.CTkButton(card_act, text="Settings", command=self.open_settings, fg_color="#2d2d2d")
+        self.btn_settings.pack(side="right", fill="x", expand=True, padx=(5, 0))
 
-        self.btn_start = tk.Button(parent, text="START SERVER", font=("Segoe UI", 12, "bold"), bg="#00e676",
-                                   fg="black", activebackground="#00c853", relief='flat',
-                                   command=self.toggle_server)
-        self.btn_start.pack(pady=15, ipadx=30, ipady=10)
+        # Features Card
+        feat_frame = ctk.CTkFrame(parent)
+        feat_frame.pack(fill="x", pady=15)
+        ctk.CTkLabel(feat_frame, text="Active Features", font=("Segoe UI", 12, "bold"), text_color="gray").pack(pady=5)
 
-        # --- FEATURES FRAME ---
-        features_frame = tk.LabelFrame(parent, text="Features", bg="#1e1e1e", fg="white", font=("Segoe UI", 10, "bold"))
-        features_frame.pack(fill='x', padx=20, pady=10)
+        row = ctk.CTkFrame(feat_frame, fg_color="transparent")
+        row.pack(pady=10)
 
-        # Camera Row
-        cam_frame = tk.Frame(features_frame, bg="#1e1e1e")
-        cam_frame.pack(fill='x', pady=2, padx=5)
+        self.btn_obs = ctk.CTkButton(row, text="OBS Camera", state="disabled",
+                                     command=lambda: self.toggle_camera("OBS Virtual Camera"))
+        self.btn_obs.pack(side="left", padx=5)
 
-        self.btn_obs = tk.Button(cam_frame, text="Start OBS Camera", font=("Segoe UI", 9), bg="#9c27b0", fg="white",
-                                 relief='flat', command=lambda: self.toggle_camera("OBS Virtual Camera"), state='disabled')
-        self.btn_obs.pack(side="left", fill="x", expand=True, padx=(0, 2))
+        self.btn_unity = ctk.CTkButton(row, text="Unity Camera", state="disabled",
+                                       command=lambda: self.toggle_camera("Unity Video Capture"))
+        self.btn_unity.pack(side="left", padx=5)
 
-        self.btn_unity = tk.Button(cam_frame, text="Start Unity Camera", font=("Segoe UI", 9), bg="#673ab7", fg="white",
-                                   relief='flat', command=lambda: self.toggle_camera("Unity Video Capture"), state='disabled')
-        self.btn_unity.pack(side="right", fill="x", expand=True, padx=(2, 0))
+        self.btn_audio = ctk.CTkButton(row, text="Audio Stream", state="disabled", command=self.toggle_audio)
+        self.btn_audio.pack(side="left", padx=5)
 
-        # Audio Button
-        self.btn_audio = tk.Button(features_frame, text="🔊 Audio Streaming", font=("Segoe UI", 10), bg="#2196f3",
-                                   fg="white", relief='flat', command=self.toggle_audio, state='disabled')
-        self.btn_audio.pack(fill='x', pady=2, padx=5)
+        # Logs
+        ctk.CTkLabel(parent, text="Activity Log", anchor="w").pack(fill="x")
+        self.log_box = ctk.CTkTextbox(parent, height=120, font=("Consolas", 12))
+        self.log_box.pack(fill="x", pady=5)
 
-        # Log
-        log_frame = tk.LabelFrame(parent, text="Activity Log", bg="#1e1e1e", fg="#b0b0b0", font=("Consolas", 9))
-        log_frame.pack(fill='both', expand=True, padx=20, pady=10)
-        self.log_text = scrolledtext.ScrolledText(log_frame, height=5, bg="#2d2d2d", fg="white", font=("Consolas", 9), relief='flat')
-        self.log_text.pack(fill='both', expand=True, padx=5, pady=5)
+    def build_camera(self, parent):
+        # Split: Left Controls | Right Preview
+        parent.grid_columnconfigure(1, weight=1)
+        parent.grid_rowconfigure(0, weight=1)
+
+        left = ctk.CTkFrame(parent, width=220)
+        left.grid(row=0, column=0, sticky="nsew", padx=(0, 10))
+
+        right = ctk.CTkFrame(parent, fg_color="black")
+        right.grid(row=0, column=1, sticky="nsew")
+
+        # --- Controls ---
+        ctk.CTkLabel(left, text="Background", font=("Segoe UI", 14, "bold")).pack(pady=(10, 5))
+        self.var_bg = ctk.StringVar(value="none")
+        ctk.CTkRadioButton(left, text="None", variable=self.var_bg, value="none",
+                           command=self.update_cam_settings).pack(anchor="w", padx=20, pady=2)
+        ctk.CTkRadioButton(left, text="Blur", variable=self.var_bg, value="blur",
+                           command=self.update_cam_settings).pack(anchor="w", padx=20, pady=2)
+        ctk.CTkRadioButton(left, text="Image", variable=self.var_bg, value="image",
+                           command=self.update_cam_settings).pack(anchor="w", padx=20, pady=2)
+        ctk.CTkButton(left, text="Select Image...", command=self.select_bg_image, height=24, fg_color="#333").pack(
+            pady=5)
+
+        ctk.CTkLabel(left, text="Adjustments", font=("Segoe UI", 14, "bold")).pack(pady=(15, 5))
+        self.var_mirror = ctk.BooleanVar(value=False)
+        ctk.CTkSwitch(left, text="Mirror Video", variable=self.var_mirror, command=self.update_cam_settings).pack(
+            anchor="w", padx=20, pady=5)
+        self.var_flip = ctk.BooleanVar(value=False)
+        ctk.CTkSwitch(left, text="Flip Vertical", variable=self.var_flip, command=self.update_cam_settings).pack(
+            anchor="w", padx=20, pady=5)
+
+        ctk.CTkLabel(left, text="Brightness", font=("Segoe UI", 12)).pack(pady=(5, 0))
+        self.scale_bright = ctk.CTkSlider(left, from_=-100, to=100, command=lambda x: self.update_cam_settings())
+        self.scale_bright.set(0)
+        self.scale_bright.pack(fill="x", padx=20, pady=5)
+
+        ctk.CTkLabel(left, text="Resolution", font=("Segoe UI", 12)).pack(pady=(10, 5))
+        self.combo_res = ctk.CTkOptionMenu(left, values=["1280x720 (16:9)", "1920x1080 (16:9)", "800x600 (4:3)",
+                                                         "720x720 (1:1)"],
+                                           command=self.change_aspect_ratio)
+        self.combo_res.pack(padx=20)
+
+        # --- 👇 RESTORED OUTPUT BUTTONS HERE 👇 ---
+        ctk.CTkLabel(left, text="Output Control", font=("Segoe UI", 14, "bold")).pack(pady=(20, 5))
+
+        self.btn_cs_obs = ctk.CTkButton(left, text="Start OBS Camera", fg_color=["#3B8ED0", "#1F6AA5"],
+                                        command=lambda: self.toggle_camera("OBS Virtual Camera"))
+        self.btn_cs_obs.pack(padx=20, pady=5, fill="x")
+
+        self.btn_cs_unity = ctk.CTkButton(left, text="Start Unity Camera", fg_color=["#3B8ED0", "#1F6AA5"],
+                                          command=lambda: self.toggle_camera("Unity Video Capture"))
+        self.btn_cs_unity.pack(padx=20, pady=5, fill="x")
+        # ------------------------------------------
+
+        # --- Preview ---
+        self.lbl_preview = ctk.CTkLabel(right, text="Waiting for connection...", text_color="gray")
+        self.lbl_preview.place(relx=0.5, rely=0.5, anchor="center")
 
     def build_sharing(self, parent):
         # Clipboard
-        frame_clip = tk.LabelFrame(parent, text="Clipboard", bg="#1e1e1e", fg="white", font=("Segoe UI", 10, "bold"))
-        frame_clip.pack(fill='x', padx=20, pady=10)
-        self.txt_clip = tk.Text(frame_clip, height=3, bg="#2d2d2d", fg="white", relief='flat', font=("Consolas", 10))
-        self.txt_clip.pack(fill='x', padx=10, pady=5)
-        btn_frame = tk.Frame(frame_clip, bg="#1e1e1e")
-        btn_frame.pack(fill='x', padx=10, pady=5)
-        tk.Button(btn_frame, text="Copy to PC Clipboard", bg="#2d2d2d", fg="white", relief='flat', command=self.copy_to_pc).pack(side='left')
-        tk.Button(btn_frame, text="Send Text to Phone", bg="#00e676", fg="black", relief='flat', command=self.send_text_to_phone).pack(side='right')
+        card_clip = ctk.CTkFrame(parent)
+        card_clip.pack(fill="x", pady=10)
+        ctk.CTkLabel(card_clip, text="Clipboard Sync", font=("Segoe UI", 14, "bold"), text_color="#00e676").pack(
+            anchor="w", padx=15, pady=10)
 
-        # File Transfer
-        frame_file = tk.LabelFrame(parent, text="File Transfer", bg="#1e1e1e", fg="white", font=("Segoe UI", 10, "bold"))
-        frame_file.pack(fill='both', expand=True, padx=20, pady=10)
-        self.list_files = tk.Listbox(frame_file, bg="#2d2d2d", fg="white", relief='flat', font=("Segoe UI", 9))
-        self.list_files.pack(fill='both', expand=True, padx=10, pady=5)
-        self.list_files.bind("<Double-Button-1>", self.open_file)
-        btn_frame_f = tk.Frame(frame_file, bg="#1e1e1e")
-        btn_frame_f.pack(fill='x', padx=10, pady=10)
-        tk.Button(btn_frame_f, text="📂 Open Received Folder", bg="#2d2d2d", fg="white", relief='flat', command=self.open_folder).pack(side='left')
-        tk.Button(btn_frame_f, text="📤 Send File to Phone", bg="#00e676", fg="black", relief='flat', command=self.send_file_pick).pack(side='right')
+        self.txt_clip = ctk.CTkTextbox(card_clip, height=80)
+        self.txt_clip.pack(fill="x", padx=15, pady=5)
 
-    def toggle_camera(self, device_name):
-        """Handles logic for both camera buttons."""
-        if not self.server: return
+        row = ctk.CTkFrame(card_clip, fg_color="transparent")
+        row.pack(fill="x", padx=10, pady=10)
+        ctk.CTkButton(row, text="Copy to PC", command=self.copy_to_pc).pack(side="left", expand=True, padx=5)
+        ctk.CTkButton(row, text="Send to Phone", command=self.send_text_to_phone, fg_color="#2d2d2d").pack(side="right",
+                                                                                                           expand=True,
+                                                                                                           padx=5)
 
-        if self.server._vcam_running:
-            # STOP CAMERA
-            self.server.stop_virtual_camera()
+        # Files
+        card_file = ctk.CTkFrame(parent)
+        card_file.pack(fill="both", expand=True, pady=10)
+        ctk.CTkLabel(card_file, text="File Transfer", font=("Segoe UI", 14, "bold"), text_color="#00e676").pack(
+            anchor="w", padx=15, pady=10)
 
-            # Reset BOTH buttons to default state
-            self.btn_obs.config(text="Start OBS Camera", bg="#9c27b0", state="normal")
-            self.btn_unity.config(text="Start Unity Camera", bg="#673ab7", state="normal")
+        self.list_files = ctk.CTkTextbox(card_file)
+        self.list_files.pack(fill="both", expand=True, padx=15, pady=5)
 
-        else:
-            # START CAMERA (Specific Driver)
-            self.server.start_virtual_camera(device_name)
+        row2 = ctk.CTkFrame(card_file, fg_color="transparent")
+        row2.pack(fill="x", padx=10, pady=10)
+        ctk.CTkButton(row2, text="Open Folder", command=self.open_folder).pack(side="left", expand=True, padx=5)
+        ctk.CTkButton(row2, text="Send File...", command=self.send_file_pick, fg_color="#2d2d2d").pack(side="right",
+                                                                                                       expand=True,
+                                                                                                       padx=5)
 
-            # Update UI based on success check (allow small delay for thread to set flag)
-            self.root.after(100, lambda: self._update_cam_buttons(device_name))
-
+    # --- LOGIC HANDLERS ---
     def toggle_server(self):
         if not self.is_running:
-            self.btn_start.config(text="STOP SERVER", bg="#cf6679", fg="white")
-            self.status_label.config(text="🟡 Starting...", fg="orange")
+            self.btn_start.configure(text="STOP SERVER", fg_color="#cf6679", hover_color="#b00020")
+            self.lbl_status.configure(text="Starting...", text_color="orange")
             threading.Thread(target=self.start_sequence, daemon=True).start()
         else:
             self.stop_server()
 
+    def stop_server(self):
+        if self.server: self.server.stop()
+        self.is_running = False
+        self.btn_start.configure(text="START SERVER", fg_color="#00e676", hover_color="#00c853")
+        self.lbl_status.configure(text="🔴 Offline", text_color="#cf6679")
+        self.ent_ip.configure(state="normal");
+        self.ent_ip.delete(0, "end");
+        self.ent_ip.insert(0, "Not Running");
+        self.ent_ip.configure(state="readonly")
+
+        for btn in [self.btn_obs, self.btn_unity, self.btn_audio]:
+            btn.configure(state="disabled", fg_color=["#3B8ED0", "#1F6AA5"])
+
+    def start_sequence(self):
+        try:
+            if self.server: self.server.stop()
+            port = self.prefs.get("port", 8080);
+            gaming_mode = self.prefs.get("gaming_mode", True)
+            self.server = UnifiedRemoteServer(port=port, gaming_mode=gaming_mode, update_queue=self.update_queue)
+            self.server.start()
+            for _ in range(20):
+                if self.server._loop and self.server._loop.is_running():
+                    ip = self.server.get_local_ip();
+                    self.update_queue.put(("server_ready", f"{ip}:{port}"));
+                    return
+                time.sleep(0.1)
+            raise Exception("Timeout")
+        except Exception as e:
+            self.update_queue.put(("error", str(e))); self.stop_server()
+
+    def toggle_camera(self, device_name):
+        if not self.server: return
+        if self.server._vcam_running:
+            self.server.stop_virtual_camera()
+            self._update_cam_buttons(None)
+        else:
+            self.server.start_virtual_camera(device_name)
+            self.root.after(100, lambda: self._update_cam_buttons(device_name))
+
+    def _update_cam_buttons(self, active_device):
+        is_running = self.server and self.server._vcam_running
+        if is_running:
+            if active_device == "OBS Virtual Camera":
+                self.btn_obs.configure(text="⏹ Stop OBS", fg_color="#cf6679", state="normal")
+                self.btn_unity.configure(state="disabled")
+            else:
+                self.btn_unity.configure(text="⏹ Stop Unity", fg_color="#cf6679", state="normal")
+                self.btn_obs.configure(state="disabled")
+        else:
+            self.btn_obs.configure(text="OBS Camera", fg_color=["#3B8ED0", "#1F6AA5"], state="normal")
+            self.btn_unity.configure(text="Unity Camera", fg_color=["#3B8ED0", "#1F6AA5"], state="normal")
+
+    def toggle_audio(self):
+        if not self.server._streaming_audio:
+            self.server.start_audio_streaming()
+            self.btn_audio.configure(text="⏹ Stop Audio", fg_color="#cf6679")
+        else:
+            self.server.stop_audio_streaming()
+            self.btn_audio.configure(text="Audio Stream", fg_color=["#3B8ED0", "#1F6AA5"])
+
+    def send_text_to_phone(self):
+        text = self.txt_clip.get("1.0", "end").strip()
+        if text and self.server: self.server.send_to_android("clipboard_text", text)
+
+    def copy_to_pc(self):
+        pyperclip.copy(self.txt_clip.get("1.0", "end").strip())
+
+    def send_file_pick(self):
+        paths = filedialog.askopenfilenames()
+        if paths and self.server: threading.Thread(target=self.process_multiple_files, args=(paths,),
+                                                   daemon=True).start()
+
+    def process_multiple_files(self, paths):
+        for p in paths: self.server.send_file_to_phone_thread(p); time.sleep(0.5)
+
+    def open_folder(self):
+        os.startfile(SAVE_DIR)
+
     def update_cam_settings(self):
         if self.server:
-            self.server.bg_mode = self.var_bg.get()
+            self.server.bg_mode = self.var_bg.get();
             self.server.is_mirrored = self.var_mirror.get()
-            self.server.is_flipped = self.var_flip.get()
+            self.server.is_flipped = self.var_flip.get();
             self.server.brightness_boost = int(self.scale_bright.get())
 
     def select_bg_image(self):
         path = filedialog.askopenfilename(filetypes=[("Images", "*.jpg *.png *.jpeg")])
         if path and self.server:
-            self.server.bg_image_path = path
-            self.server.bg_image_cache = None
-            self.var_bg.set("image")
+            self.server.bg_image_path = path;
+            self.server.bg_image_cache = None;
+            self.var_bg.set("image");
             self.update_cam_settings()
+
+    def change_aspect_ratio(self, selection):
+        if not self.server: return
+        try:
+            w, h = map(int, selection.split(" ")[0].split("x"))
+            self.server.target_w = w;
+            self.server.target_h = h
+            if self.server._vcam_running:
+                dev = self.server._vcam.device;
+                self.server.stop_virtual_camera()
+                self.root.after(500, lambda: self.server.start_virtual_camera(dev))
+        except:
+            pass
 
     def update_preview(self):
         if self.server and self.server.latest_preview_frame is not None:
             try:
                 frame = self.server.latest_preview_frame
-                if frame.shape[0] > 0:
-                    img = Image.fromarray(frame)
-                    imgtk = ImageTk.PhotoImage(image=img)
-                    self.lbl_preview.config(image=imgtk, text="")
-                    self.lbl_preview.image = imgtk
-            except Exception:
-                pass
-        self.root.after(33, self.update_preview)
-
-    def _update_cam_buttons(self, active_device):
-        """Helper to update button states (Color & Text) after starting/stopping."""
-
-        # Check if server and vcam are running
-        is_running = self.server and self.server._vcam_running
-
-        if is_running:
-            # --- CAMERA IS ON ---
-            if active_device == "OBS Virtual Camera":
-                # Update Dashboard Button
-                self.btn_obs.config(text="⏹ Stop OBS", bg="#cf6679")
-                self.btn_unity.config(state="disabled", bg="#424242")
-
-                # Update Camera Studio Button (NEW)
-                if hasattr(self, 'btn_cs_obs'):
-                    self.btn_cs_obs.config(text="⏹ Stop OBS Camera", bg="#cf6679")
-                if hasattr(self, 'btn_cs_unity'):
-                    self.btn_cs_unity.config(state="disabled", bg="#424242")
-
-            else:
-                # Update Dashboard Button
-                self.btn_unity.config(text="⏹ Stop Unity", bg="#cf6679")
-                self.btn_obs.config(state="disabled", bg="#424242")
-
-                # Update Camera Studio Button (NEW)
-                if hasattr(self, 'btn_cs_unity'):
-                    self.btn_cs_unity.config(text="⏹ Stop Unity Camera", bg="#cf6679")
-                if hasattr(self, 'btn_cs_obs'):
-                    self.btn_cs_obs.config(state="disabled", bg="#424242")
-        else:
-            # --- CAMERA IS OFF (Reset All) ---
-            # Dashboard
-            self.btn_obs.config(state="normal", bg="#9c27b0", text="Start OBS Camera")
-            self.btn_unity.config(state="normal", bg="#673ab7", text="Start Unity Camera")
-
-            # Camera Studio
-            if hasattr(self, 'btn_cs_obs'):
-                self.btn_cs_obs.config(state="normal", bg="#9c27b0", text="Start OBS Camera")
-            if hasattr(self, 'btn_cs_unity'):
-                self.btn_cs_unity.config(state="normal", bg="#673ab7", text="Start Unity Camera")
-
-    def start_sequence(self):
-        try:
-            if self.server: self.server.stop()
-
-            # USE CUSTOM PORT FROM SETTINGS
-            port = self.prefs.get("port", 8080)
-            self.server = UnifiedRemoteServer(port=port, update_queue=self.update_queue)
-            self.server.start()
-
-            for _ in range(20):
-                if self.server._loop and self.server._loop.is_running():
-                    ip = self.server.get_local_ip()
-                    self.update_queue.put(("server_ready", f"{ip}:{port}"))
-                    return
-                time.sleep(0.1)
-            raise Exception(f"Server timed out on port {port}.")
-        except Exception as e:
-            self.update_queue.put(("error", str(e)))
-            if self.server: self.server.stop()
-
-    # ... (Add existing helper methods: stop_server, toggle_vcam, etc. here) ...
-
-    # Copied helpers for completeness of the GUI block (abbreviated)
-    def stop_server(self):
-        if self.server:
-            self.server.stop()
-
-        self.is_running = False
-        self.btn_start.config(text="START SERVER", bg="#00e676", fg="black")
-        self.status_label.config(text="🔴 Offline", fg="#cf6679")
-        self.ip_var.set("Not Running")
-
-        # --- DISABLE DASHBOARD BUTTONS ---
-        if hasattr(self, 'btn_obs'):
-            self.btn_obs.config(state='disabled', bg="#424242", text="Start OBS Camera")
-        if hasattr(self, 'btn_unity'):
-            self.btn_unity.config(state='disabled', bg="#424242", text="Start Unity Camera")
-        if hasattr(self, 'btn_audio'):
-            self.btn_audio.config(state='disabled', bg="#424242", text="🔊 Audio Streaming")
-
-        # --- DISABLE CAMERA STUDIO BUTTONS (NEW) ---
-        if hasattr(self, 'btn_cs_obs'):
-            self.btn_cs_obs.config(state='disabled', bg="#424242", text="Start OBS Camera")
-        if hasattr(self, 'btn_cs_unity'):
-            self.btn_cs_unity.config(state='disabled', bg="#424242", text="Start Unity Camera")
-
-    def toggle_vcam(self):
-        if not self.server._vcam_running:
-            self.server.start_virtual_camera()
-            self.btn_vcam.config(text="⏹ Stop Camera", bg="#cf6679")
-        else:
-            self.server.stop_virtual_camera()
-            self.btn_vcam.config(text="📹 Virtual Camera", bg="#9c27b0")
-
-    def toggle_audio(self):
-        if not self.server._streaming_audio:
-            self.server.start_audio_streaming()
-            self.btn_audio.config(text="🔇 Stop Audio", bg="#cf6679")
-        else:
-            self.server.stop_audio_streaming()
-            self.btn_audio.config(text="🔊 Audio Streaming", bg="#2196f3")
-
-    def send_text_to_phone(self):
-        text = self.txt_clip.get("1.0", tk.END).strip()
-        if text and self.server: self.server.send_to_android("clipboard_text", text)
-
-    def send_file_pick(self):
-        if not self.server or not self.is_running: return
-        paths = filedialog.askopenfilenames()
-        if paths: threading.Thread(target=self.process_multiple_files, args=(paths,), daemon=True).start()
-
-    def process_multiple_files(self, paths):
-        for p in paths:
-            self.server.send_file_to_phone_thread(p)
-            time.sleep(0.5)
-
-    def copy_to_pc(self):
-        pyperclip.copy(self.txt_clip.get("1.0", tk.END).strip())
-
-    def open_folder(self):
-        try:
-            SAVE_DIR.mkdir(parents=True, exist_ok=True)
-            os.startfile(SAVE_DIR)
-        except:
-            pass
-
-    def open_file(self, event):
-        sel = self.list_files.curselection()
-        if sel:
-            try:
-                os.startfile(SAVE_DIR / self.list_files.get(sel[0]))
+                img = Image.fromarray(frame)
+                ctk_img = ctk.CTkImage(light_image=img, dark_image=img, size=(frame.shape[1], frame.shape[0]))
+                self.lbl_preview.configure(image=ctk_img, text="")
             except:
                 pass
+        self.root.after(33, self.update_preview)
 
     def process_queue(self):
         try:
@@ -2506,99 +2297,82 @@ class ServerGUI:
 
                 elif kind == "server_ready":
                     self.is_running = True
-                    self.status_label.config(text="🟢 Online", fg="#00e676")
-                    self.ip_var.set(f"ws://{data}")
-                    self.log(f"Server ready on {data}")
-
-                    # Enable buttons
-                    if hasattr(self, 'btn_obs'): self.btn_obs.config(state='normal', bg="#9c27b0")
-                    if hasattr(self, 'btn_unity'): self.btn_unity.config(state='normal', bg="#673ab7")
-                    if hasattr(self, 'btn_audio'): self.btn_audio.config(state='normal', bg="#2196f3")
+                    self.lbl_status.configure(text="🟢 Online", text_color="#00e676")
+                    self.ent_ip.configure(state="normal");
+                    self.ent_ip.delete(0, "end");
+                    self.ent_ip.insert(0, f"ws://{data}");
+                    self.ent_ip.configure(state="readonly")
+                    self.btn_obs.configure(state="normal")
+                    self.btn_unity.configure(state="normal")
+                    self.btn_audio.configure(state="normal")
 
                 elif kind == "error":
-                    self.log(f"Error: {data}")
                     messagebox.showerror("Error", data)
                     self.stop_server()
 
-                # --- FIX: ADD MISSING HANDLERS HERE ---
-
                 elif kind == "clipboard":
-                    # Update the clipboard text box
-                    self.txt_clip.delete("1.0", tk.END)
-                    self.txt_clip.insert(tk.END, data)
-                elif kind == "audio_status":
-                    is_on = data  # True or False
-                    if is_on:
-                        self.btn_audio.config(text="🔇 Stop Audio", bg="#cf6679")
-                    else:
-                        self.btn_audio.config(text="🔊 Audio Streaming", bg="#2196f3")
+                    self.txt_clip.delete("1.0", "end")
+                    self.txt_clip.insert("end", data)
 
                 elif kind == "file_received":
-                    # Add filename to the listbox
-                    # data is the full path, we just want the filename for the list
-                    import os
-                    filename = os.path.basename(data)
-                    self.list_files.insert(tk.END, filename)
-                    self.list_files.see(tk.END)  # Scroll to bottom
+                    self.list_files.insert("end", f"📄 {os.path.basename(data)}\n")
+
+                # 👇👇👇 NEW: HANDLE AUDIO STATUS UPDATES 👇👇👇
+                elif kind == "audio_status":
+                    is_on = data  # True/False
+                    if is_on:
+                        self.btn_audio.configure(text="⏹ Stop Audio", fg_color="#cf6679")
+                    else:
+                        self.btn_audio.configure(text="Start Audio Stream", fg_color=["#3B8ED0", "#1F6AA5"])
+
+                # 👇👇👇 NEW: HANDLE CAMERA (OBS/UNITY) UPDATES 👇👇👇
+                elif kind == "camera_status":
+                    # data will be the device name (e.g. "OBS Virtual Camera") or None if stopped
+                    self._update_cam_buttons(data)
 
         except queue.Empty:
             pass
         except Exception as e:
             print(f"Queue Error: {e}")
 
-        # Keep checking the queue
         self.root.after(200, self.process_queue)
 
     def log(self, msg):
-        self.log_text.insert(tk.END, f"> {msg}\n")
-        self.log_text.see(tk.END)
+        self.log_box.insert("end", f"> {msg}\n");
+        self.log_box.see("end")
 
     def on_closing(self):
         if self.is_running: self.stop_server()
         self.root.destroy()
 
-    def run(self):
-        self.root.mainloop()
-
 
 # ============================================
 # MAIN
 # ============================================
-
 if __name__ == "__main__":
     import multiprocessing
 
     multiprocessing.freeze_support()
 
-    # 1. Check if we need Admin Rights based on previous settings
+    # Admin check (Keep existing logic)
     must_be_admin = False
     try:
         if SETTINGS_FILE.exists():
-            with open(SETTINGS_FILE, 'r') as f:
-                data = json.load(f)
-                must_be_admin = data.get("run_as_admin", False)
+            with open(SETTINGS_FILE, 'r') as f: must_be_admin = json.load(f).get("run_as_admin", False)
     except:
         pass
 
-    # 2. Check if we ARE Admin
     is_admin = False
     try:
         is_admin = ctypes.windll.shell32.IsUserAnAdmin()
     except:
         pass
 
-    # 3. If we need admin but don't have it -> Restart as Admin
     if must_be_admin and not is_admin:
-        print("⚠️ Restarting as Administrator...")
-        # Re-run the script with Admin privileges
-        ctypes.windll.shell32.ShellExecuteW(
-            None, "runas", sys.executable, __file__, None, 1
-        )
+        ctypes.windll.shell32.ShellExecuteW(None, "runas", sys.executable, __file__, None, 1)
         sys.exit()
 
-    # 4. Normal Startup
-    if sys.platform == "win32":
-        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+    if sys.platform == "win32": asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
     app = ServerGUI()
-    app.run()
+    app.root.mainloop()
