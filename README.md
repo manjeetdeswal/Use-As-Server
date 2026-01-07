@@ -10,6 +10,19 @@
 
 [**🌐 Visit Official Website & Guide**](https://manjeetdeswal.github.io/Use-As-Server/)
 
+<p align="center">
+  <img src="https://github.com/manjeetdeswal/Use-As-Server/blob/main/ss/Screenshot%202026-01-07%20152541.png?raw=true" width="45%" alt="Home Screen" />
+  <img src="screenshots/2_touchpad.png" width="45%" alt="Smart Touchpad" />
+</p>
+<p align="center">
+  <img src="screenshots/3_keyboard.png" width="45%" alt="Keyboard" />
+  <img src="screenshots/4_display.png" width="45%" alt="Display Extension" />
+</p>
+<p align="center">
+  <img src="screenshots/5_mic.png" width="45%" alt="Mic Streaming" />
+</p>
+
+
 </div>
 
 ---
