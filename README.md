@@ -9,7 +9,8 @@
 [![Python](https://img.shields.io/badge/python-3.10%2B-yellow.svg)](https://www.python.org/)
 
 [**🌐 Visit Official Website & Guide**](https://manjeetdeswal.github.io/Use-As-Server/)
-<bold>Linux support coming soon<bold/>
+
+<b> Linux support coming soon<b/>
 
 <p align="center">
   <img src="https://github.com/manjeetdeswal/Use-As-Server/blob/main/ss/Screenshot%202026-01-07%20152541.png?raw=true" width="45%" alt="Home Screen" />
