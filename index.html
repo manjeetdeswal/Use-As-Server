@@ -8,6 +8,7 @@
         :root {
             --primary: #00E676;       /* Android Green */
             --primary-dark: #00C853;
+            --linux-color: #E95420;   /* Ubuntu Orange */
             --bg: #121212;            /* Dark Mode Background */
             --surface: #1E1E1E;       /* Card Background */
             --text: #FFFFFF;
@@ -47,6 +48,13 @@
         }
 
         /* --- Buttons --- */
+        .btn-group {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 15px;
+        }
+
         .btn {
             display: inline-block;
             padding: 15px 40px;
@@ -55,8 +63,8 @@
             font-weight: 700;
             font-size: 1.1rem;
             transition: all 0.2s ease;
-            margin: 5px;
             cursor: pointer;
+            border: none;
         }
 
         .btn-primary {
@@ -69,6 +77,18 @@
             background-color: var(--primary-dark);
             transform: translateY(-2px);
             box-shadow: 0 6px 20px rgba(0, 230, 118, 0.4);
+        }
+
+        .btn-linux {
+            background-color: var(--linux-color);
+            color: #fff;
+            box-shadow: 0 4px 15px rgba(233, 84, 32, 0.3);
+        }
+
+        .btn-linux:hover {
+            background-color: #c9461b;
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(233, 84, 32, 0.4);
         }
 
         .btn-secondary {
@@ -97,6 +117,8 @@
             border-left: 5px solid var(--primary);
             padding-left: 20px;
         }
+
+        h2.linux-header { border-color: var(--linux-color); }
 
         /* --- Steps Grid --- */
         .steps {
@@ -139,7 +161,6 @@
             margin-top: 15px;
         }
         
-        /* Warning note style */
         .note.warning {
             background: rgba(255, 171, 0, 0.1);
             border: 1px solid rgba(255, 171, 0, 0.3);
@@ -212,6 +233,28 @@
         .tag-req { background: rgba(255, 171, 0, 0.15); color: var(--warning); border: 1px solid rgba(255, 171, 0, 0.3); }
         .tag-easy { background: rgba(0, 230, 118, 0.15); color: var(--primary); border: 1px solid rgba(0, 230, 118, 0.3); }
 
+        /* --- LINUX & CODE STYLES --- */
+        .linux-box {
+            background: linear-gradient(145deg, #1E1E1E, #222);
+            border: 1px solid #333;
+            border-left: 4px solid var(--linux-color);
+            padding: 25px;
+            border-radius: 8px;
+            margin-bottom: 25px;
+        }
+
+        .terminal {
+            background-color: #000;
+            color: #00ff00;
+            font-family: 'Consolas', 'Courier New', monospace;
+            padding: 15px;
+            border-radius: 6px;
+            margin: 10px 0;
+            white-space: pre-wrap;
+            font-size: 0.9rem;
+            border-left: 3px solid #555;
+        }
+
         /* --- UNITY SPECIFIC --- */
         .unity-box {
             background: linear-gradient(145deg, #1E1E1E, #222);
@@ -274,16 +317,23 @@
     <header>
         <h1>Use As PC Server</h1>
         <p class="subtitle">Turn your phone into a high-performance Webcam, Mic, Mouse, and Gamepad.</p>
-        <div>
-            <a href="https://github.com/manjeetdeswal/Use-As-Server/releases/download/1.3/UseAs_Setup_v1.3.exe" class="btn btn-primary">Download Installer for Windows</a>
-            <p style="margin-top: 10px; font-size: 0.9rem; color: #666;">v1.1 • Windows 10/11 • 64-bit</p>
+        
+        <div class="btn-group">
+            <div>
+                <a href="https://github.com/manjeetdeswal/Use-As-Server/releases/download/1.3/UseAs_Setup_v1.3.exe" class="btn btn-primary">Download for Windows</a>
+                <p style="margin-top: 5px; font-size: 0.8rem; color: #666;">v1.3 • .exe</p>
+            </div>
+            <div>
+                <a href="https://github.com/manjeetdeswal/Use-As-Server/releases/download/1.3/useas-build.linux.deb" class="btn btn-linux">Download for Linux</a>
+                <p style="margin-top: 5px; font-size: 0.8rem; color: #666;">v1.3 • .deb • Debian/Ubuntu</p>
+            </div>
         </div>
     </header>
 
     <div class="container">
 
         <section>
-            <h2>Installation Guide</h2>
+            <h2>Windows Installation</h2>
             <div class="steps">
                 <div class="step-card">
                     <div class="step-num">1</div>
@@ -296,7 +346,7 @@
                 <div class="step-card">
                     <div class="step-num">2</div>
                     <h3>Get Drivers</h3>
-                    <p>For full features, download the required drivers from the section below.</p>
+                    <p>For full features (Gamepad, Mic, Screen Extension), download the required drivers from the section below.</p>
                 </div>
                 <div class="step-card">
                     <div class="step-num">3</div>
@@ -307,10 +357,60 @@
             </div>
         </section>
 
-        <section>
-            <h2>Essential Downloads</h2>
-            <div class="downloads-grid">
+        <section id="linux-setup">
+            <h2 class="linux-header">Linux Setup & Configuration</h2>
+            
+            <div class="linux-box">
+                <h3 style="color: var(--linux-color);">1. Install the Application</h3>
+                <p>Open your terminal in the folder where you downloaded the <code>.deb</code> file and run:</p>
+                <div class="terminal">sudo apt update
+sudo apt install ./use-as-server_1.0_all.deb</div>
+                <p class="note">(Restart is required for everyting to work properly)This will automatically install dependencies like <code>python3</code>, <code>xdotool</code>, and <code>ffmpeg</code>.</p>
+            </div>
+
+            <div class="linux-box">
+                <h3 style="color: var(--linux-color);">2. Audio Configuration (Manual Setup)</h3>
+                <p>The server creates a virtual microphone and speaker, but sometimes Linux does not switch to them automatically. We use <strong>PulseAudio Volume Control (pavucontrol)</strong> to manage this.</p>
                 
+                <div style="margin-top: 15px;">
+                    <strong>Step A: Install Control Tool</strong>
+                    <div class="terminal">sudo apt install pavucontrol
+pavucontrol</div>
+                </div>
+
+                <div style="margin-top: 15px;">
+                    <strong>Step B: Configure Microphone</strong>
+                    <ol style="margin-left:20px; color:var(--text-secondary);">
+                        <li>Open the app you want to use (e.g., Discord or Zoom).</li>
+                        <li>Open <strong>pavucontrol</strong> and go to the <strong>"Recording"</strong> tab.</li>
+                        <li>Find your app (e.g., Discord) in the list.</li>
+                        <li>Change the input source button from <em>"Built-in Audio"</em> to <strong>"Monitor of UseAs_Mic"</strong> or <strong>"UseAs_Mic"</strong>.</li>
+                    </ol>
+                </div>
+
+                <div style="margin-top: 15px;">
+                    <strong>Step C: Configure Speaker (Hear PC on Phone)</strong>
+                    <ol style="margin-left:20px; color:var(--text-secondary);">
+                        <li>Start the Audio Stream on the Use As phone app.</li>
+                        <li>In <strong>pavucontrol</strong>, go to the <strong>"Playback"</strong> tab.</li>
+                        <li>Find <strong>"Use As Server"</strong> (or python3).</li>
+                        <li>Change its Output device to <strong>"UseAs_Mic"</strong> or your desired sink if you want to route specific app audio.</li>
+                    </ol>
+                </div>
+            </div>
+
+            <div class="linux-box">
+                <h3 style="color: var(--linux-color);">3. Camera Setup (v4l2loopback)</h3>
+                <p>To use the phone camera as a webcam on Linux, the kernel module must be loaded.</p>
+                <div class="terminal">sudo modprobe v4l2loopback exclusive_caps=1 card_label="UseAs Cam"</div>
+                <p class="note">If this command fails, install the headers: <code>sudo apt install v4l2loopback-dkms</code></p>
+            </div>
+        </section>
+
+        <section>
+            <h2>Windows Drivers (Essential)</h2>
+            <div class="downloads-grid">
+               
                 <div class="download-card">
                     <div>
                         <span class="icon">🎮</span>
@@ -520,6 +620,12 @@
                 </div>
             </details>
             <details>
+                <summary>🐧 Linux: Audio not routing?</summary>
+                <div class="faq-content">
+                    <p>Refer to the <strong>Linux Setup</strong> section above. You MUST use <code>pavucontrol</code> to manually tell apps (like Discord) to listen to the "UseAs_Mic" instead of your built-in microphone.</p>
+                </div>
+            </details>
+            <details>
                 <summary>🎤 Microphone not working in Discord</summary>
                 <div class="faq-content">
                     <p>Ensure you have selected <strong>"CABLE Output"</strong> as your Input Device in Discord settings, not "Default".</p>
@@ -537,10 +643,8 @@
     </div>
 
     <footer>
-        <p>&copy; 2025 Use As. Built for Android & Windows.</p>
+        <p>&copy; 2025 Use As. Built for Android, Windows & Linux.</p>
     </footer>
 
 </body>
 </html>
-
-
