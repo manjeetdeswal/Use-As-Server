@@ -71,6 +71,7 @@ You can install the server using the installers below or run it from the Python 
     sudo apt update
     sudo apt install ./use-as-server_1.0_all.deb
     ```
+    (Restart is required for everyting to work)
     *(This automatically installs Python, FFmpeg, and required tools).*
 
 3.  **Linux Setup & Configuration:**
