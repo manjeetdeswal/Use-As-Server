@@ -1,0 +1,10 @@
+pyinstaller --noconsole --onefile --collect-binaries=vgamepad server.py
+
+
+
+
+pyinstaller --noconsole --onefile --collect-binaries=vgamepad --icon=icon.ico unified_remote_gui.py
+
+
+
+pyinstaller --noconsole --onefile --collect-binaries=vgamepad --icon=icon.ico UseAsServer.py
