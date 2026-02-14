@@ -126,11 +126,13 @@ pip3 install -r requirements_mac.txt
 Windows:
 
 Bash
-python UseAsServerLinux.py
+python UseAsServerWin.py
 
 Linux:
-python UseAsServerMac.py
+Bash
+python UseAsServerLinux.py
+
 macOS:
 
 Bash
-python3 UseAsServer.py
+python3 UseAsServerMac.py
