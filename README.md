@@ -96,6 +96,7 @@ You can install the server using the compiled installers below or run it from th
 > * 🛡️ **Permissions:** You MUST grant the app **Accessibility** (for mouse/keyboard) and **Screen Recording** (for display sharing) in `System Settings > Privacy & Security`.
 > * 🖥️ **Display Extension:** [Download BetterDisplay](https://github.com/waydabber/BetterDisplay). Create a virtual dummy display to extend your workspace to your phone instead of just mirroring it.
 > * 🎤 **Microphone:** [Download BlackHole 2ch](https://existential.audio/blackhole/). Go to Mac Sound Settings and set your Input to BlackHole.
+> * > * 🎤 **Speaker:** [Download BlackHole 2ch](https://existential.audio/blackhole/). Go to Mac Sound Settings and set your Output to BlackHole.
 > * 📸 **Webcam:** [Download OBS Studio](https://obsproject.com/). Open OBS and click "Start Virtual Camera" to install the required system extension.
 
 ---
