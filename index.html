@@ -9,6 +9,7 @@
             --primary: #00E676;       /* Android Green */
             --primary-dark: #00C853;
             --linux-color: #E95420;   /* Ubuntu Orange */
+            --mac-color: #F5F5F7;     /* Mac Silver */
             --bg: #121212;            /* Dark Mode Background */
             --surface: #1E1E1E;       /* Card Background */
             --text: #FFFFFF;
@@ -17,7 +18,7 @@
             --warning: #FFAB00;
         }
 
-        * { margin: 0; padding: 0; box_sizing: border-box; }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
 
         body {
             font-family: 'Segoe UI', system-ui, sans-serif;
@@ -91,6 +92,18 @@
             box-shadow: 0 6px 20px rgba(233, 84, 32, 0.4);
         }
 
+        .btn-mac {
+            background-color: var(--mac-color);
+            color: #000;
+            box-shadow: 0 4px 15px rgba(255, 255, 255, 0.1);
+        }
+
+        .btn-mac:hover {
+            background-color: #FFFFFF;
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(255, 255, 255, 0.2);
+        }
+
         .btn-secondary {
             background-color: var(--surface);
             color: var(--text);
@@ -119,6 +132,53 @@
         }
 
         h2.linux-header { border-color: var(--linux-color); }
+        h2.mac-header { border-color: var(--mac-color); }
+
+        /* --- Tabs --- */
+        .tab-buttons {
+            display: flex;
+            gap: 10px;
+            background: rgba(255, 255, 255, 0.05);
+            padding: 5px;
+            border-radius: 12px;
+            margin-bottom: 30px;
+            width: fit-content;
+        }
+
+        .tab-btn {
+            background: transparent;
+            color: var(--text-secondary);
+            border: none;
+            padding: 10px 24px;
+            font-size: 1.1rem;
+            font-weight: bold;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: 0.3s;
+        }
+
+        .tab-btn:hover {
+            color: var(--text);
+        }
+
+        /* Active states for tabs based on OS */
+        .tab-btn.active[data-os="windows"] { background: #00A4EF; color: #fff; }
+        .tab-btn.active[data-os="macos"] { background: var(--mac-color); color: #000; }
+        .tab-btn.active[data-os="linux"] { background: var(--linux-color); color: #fff; }
+
+        .tab-content {
+            display: none;
+            animation: fadeIn 0.4s ease;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
 
         /* --- Steps Grid --- */
         .steps {
@@ -233,15 +293,17 @@
         .tag-req { background: rgba(255, 171, 0, 0.15); color: var(--warning); border: 1px solid rgba(255, 171, 0, 0.3); }
         .tag-easy { background: rgba(0, 230, 118, 0.15); color: var(--primary); border: 1px solid rgba(0, 230, 118, 0.3); }
 
-        /* --- LINUX & CODE STYLES --- */
-        .linux-box {
+        /* --- LINUX & MAC & CODE STYLES --- */
+        .os-box {
             background: linear-gradient(145deg, #1E1E1E, #222);
             border: 1px solid #333;
-            border-left: 4px solid var(--linux-color);
             padding: 25px;
             border-radius: 8px;
             margin-bottom: 25px;
         }
+
+        .linux-box { border-left: 4px solid var(--linux-color); }
+        .mac-box { border-left: 4px solid var(--mac-color); }
 
         .terminal {
             background-color: #000;
@@ -253,24 +315,6 @@
             white-space: pre-wrap;
             font-size: 0.9rem;
             border-left: 3px solid #555;
-        }
-
-        /* --- UNITY SPECIFIC --- */
-        .unity-box {
-            background: linear-gradient(145deg, #1E1E1E, #222);
-            border: 1px solid #444;
-            padding: 30px;
-            border-radius: 16px;
-            margin-bottom: 40px;
-            position: relative;
-            overflow: hidden;
-        }
-
-        .unity-box::before {
-            content: '';
-            position: absolute;
-            top: 0; left: 0; width: 4px; height: 100%;
-            background: #fff;
         }
 
         /* --- FAQ / Troubleshooting --- */
@@ -320,33 +364,43 @@
         
         <div class="btn-group">
             <div>
-                <a href="https://github.com/manjeetdeswal/Use-As-Server/releases/download/1.4/UseAs_Setup_v1.4.exe" class="btn btn-primary">Download for Windows</a>
-                <p style="margin-top: 5px; font-size: 0.8rem; color: #666;">v1.3 • .exe</p>
+                <a href="https://github.com/manjeetdeswal/Use-As-Server/releases/download/1.4/UseAs_Win_v1.4.exe" class="btn btn-primary">Download for Windows</a>
+                <p style="margin-top: 5px; font-size: 0.8rem; color: #666;">v1.4 • .exe</p>
             </div>
             <div>
-                <a href="https://github.com/manjeetdeswal/Use-As-Server/releases/download/1.3/useas-build.linux.deb" class="btn btn-linux">Download for Linux</a>
-                <p style="margin-top: 5px; font-size: 0.8rem; color: #666;">v1.3 • .deb • Debian/Ubuntu</p>
+                <a href="https://github.com/manjeetdeswal/Use-As-Server/releases/download/1.4/Use_As_Mac.zip" class="btn btn-mac">Download for macOS</a>
+                <p style="margin-top: 5px; font-size: 0.8rem; color: #666;">v1.0 • .zip • Apple Silicon & Intel</p>
+            </div>
+            <div>
+                <a href="https://github.com/manjeetdeswal/Use-As-Server/releases/download/1.4/UseAs.linux.deb" class="btn btn-linux">Download for Linux</a>
+                <p style="margin-top: 5px; font-size: 0.8rem; color: #666;">v1.0 • .deb • Debian/Ubuntu</p>
             </div>
         </div>
     </header>
 
     <div class="container">
 
-        <section>
-            <h2>Windows Installation</h2>
+        <h2>Installation & Setup</h2>
+        <div class="tab-buttons">
+            <button class="tab-btn active" data-os="windows" onclick="openTab('windows')">Windows</button>
+            <button class="tab-btn" data-os="macos" onclick="openTab('macos')">macOS</button>
+            <button class="tab-btn" data-os="linux" onclick="openTab('linux')">Linux</button>
+        </div>
+
+        <section id="windows" class="tab-content active">
             <div class="steps">
                 <div class="step-card">
                     <div class="step-num">1</div>
                     <h3>Run Installer</h3>
                     <p>Run the setup file to install the main Server application.</p>
                     <div class="note warning">
-                        <strong>Important:</strong> Drivers are <u>NOT</u> included. Please download ViGEmBus, Unity & usbmmidd drivers below.
+                        <strong>Important:</strong> Drivers are <u>NOT</u> included. Please download Unity & usbmmidd drivers below.
                     </div>
                 </div>
                 <div class="step-card">
                     <div class="step-num">2</div>
                     <h3>Get Drivers</h3>
-                    <p>For full features (Gamepad, Mic, Screen Extension), download the required drivers from the section below.</p>
+                    <p>For full features (Mic, Screen Extension), download the required drivers from the section below.</p>
                 </div>
                 <div class="step-card">
                     <div class="step-num">3</div>
@@ -357,18 +411,39 @@
             </div>
         </section>
 
-        <section id="linux-setup">
-            <h2 class="linux-header">Linux Setup & Configuration</h2>
-            
-            <div class="linux-box">
+        <section id="macos" class="tab-content">
+            <div class="os-box mac-box">
+                <h3 style="color: var(--mac-color);">1. Install the Application</h3>
+                <p>Extract the downloaded <code>.zip</code> file and drag the <strong>UseAs Server</strong> app directly into your <strong>Applications</strong> folder. Double-click it to run.</p>
+                <div class="note warning">
+                    <strong>Crucial Security Step:</strong> Apple requires you to grant permissions. Go to <em>System Settings > Privacy & Security</em> and ensure UseAs Server is toggled <strong>ON</strong> under both <strong>Accessibility</strong> and <strong>Screen Recording.         (Gamepad does not work on Mac).   </strong>.
+                </div>
+            </div>
+
+            <div class="os-box mac-box">
+                <h3 style="color: var(--mac-color);">2. System Drivers (Optional Features)</h3>
+                <p>macOS strictly sandboxes audio and video. To use your phone as a Camera, Mic, or Second Display, you must install these free community drivers:</p>
+                <ul style="margin-left: 20px; margin-top: 10px; color: var(--text-secondary);">
+                    <li style="margin-bottom: 8px;"><strong>Microphone:</strong> Download <a href="https://existential.audio/blackhole/" target="_blank" style="color: var(--accent);">BlackHole 2ch</a>. Once installed, go to Mac Sound Settings and set your Input to BlackHole.</li>
+
+    <li style="margin-bottom: 8px;"><strong>Speaker:</strong> Download <a href="https://existential.audio/blackhole/" target="_blank" style="color: var(--accent);">BlackHole 2ch</a>. Once installed, go to Mac Sound Settings and set your Output to BlackHole.</li>
+
+                    <li style="margin-bottom: 8px;"><strong>Camera:</strong> Download <a href="https://obsproject.com/" target="_blank" style="color: var(--accent);">OBS Studio</a>. Open OBS and click "Start Virtual Camera" to install the required system extension.</li>
+                    <li><strong>Display Extension:</strong> Download <a href="https://github.com/waydabber/BetterDisplay" target="_blank" style="color: var(--accent);">BetterDisplay</a> to create a virtual dummy display to cast to your phone.</li>
+                </ul>
+            </div>
+        </section>
+
+        <section id="linux" class="tab-content">
+            <div class="os-box linux-box">
                 <h3 style="color: var(--linux-color);">1. Install the Application</h3>
                 <p>Open your terminal in the folder where you downloaded the <code>.deb</code> file and run:</p>
                 <div class="terminal">sudo apt update
-sudo apt install ./use-as-server_1.0_all.deb</div>
-                <p class="note">(Restart is required for everyting to work properly)This will automatically install dependencies like <code>python3</code>, <code>xdotool</code>, and <code>ffmpeg</code>.</p>
+sudo apt install ./UseAs.linux.deb</div>
+                <p class="note">(Restart is required for everything to work properly) This will automatically install dependencies like <code>python3</code>, <code>xdotool</code>, and <code>ffmpeg</code>.</p>
             </div>
 
-            <div class="linux-box">
+            <div class="os-box linux-box">
                 <h3 style="color: var(--linux-color);">2. Audio Configuration (Manual Setup)</h3>
                 <p>The server creates a virtual microphone and speaker, but sometimes Linux does not switch to them automatically. We use <strong>PulseAudio Volume Control (pavucontrol)</strong> to manage this.</p>
                 
@@ -399,7 +474,7 @@ pavucontrol</div>
                 </div>
             </div>
 
-            <div class="linux-box">
+            <div class="os-box linux-box">
                 <h3 style="color: var(--linux-color);">3. Camera Setup (v4l2loopback)</h3>
                 <p>To use the phone camera as a webcam on Linux, the kernel module must be loaded.</p>
                 <div class="terminal">sudo modprobe v4l2loopback exclusive_caps=1 card_label="UseAs Cam"</div>
@@ -410,12 +485,12 @@ pavucontrol</div>
         <section>
             <h2>Windows Drivers (Essential)</h2>
             <div class="downloads-grid">
-               
+                
                 <div class="download-card">
                     <div>
                         <span class="icon">🎮</span>
                         <h3>Gamepad Driver</h3>
-                        <p style="font-size:0.9rem; color:var(--warning); margin-bottom:10px;">(Manual Install Required)</p>
+                        <p style="font-size:0.9rem; color:var(--warning); margin-bottom:10px;">(Comes with installer)</p>
                         <p>Required for Controller mode.</p>
                     </div>
                     <a href="https://github.com/nefarius/ViGEmBus/releases/latest" target="_blank" class="btn btn-secondary">Get ViGEmBus</a>
@@ -455,28 +530,6 @@ pavucontrol</div>
         </section>
 
         <section>
-            <h2>Unity Camera Integration</h2>
-            <div class="unity-box">
-                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
-                   <h3>
-                      <a href="https://github.com/schellingb/UnityCapture" target="_blank" style="text-decoration:none; color:inherit;">
-                        <span style="font-size:1.5rem; margin-right:10px;">🎥</span>
-                        Unity Camera Mode
-                      </a>
-                   </h3>
-                   <span class="setup-tag tag-req">Driver Required</span>
-                </div>
-                <p>Use your phone's camera feed directly inside the Unity Engine or as a webcam for development.</p>
-                <br>
-                <ol style="margin-left: 20px; color: var(--text-secondary);">
-                    <li style="margin-bottom:10px;"><strong>Download Driver:</strong> Install the <strong>Unity Capture</strong> driver from the downloads section above.</li>
-                    <li style="margin-bottom:10px;"><strong>Register:</strong> Run <code>Install.bat</code> as Administrator in the UnityCapture folder.</li>
-                    <li style="margin-bottom:10px;"><strong>Usage:</strong> In your meeting app (Zoom/Discord), select <strong>"Unity Video Capture"</strong> as your webcam.</li>
-                </ol>
-            </div>
-        </section>
-
-        <section>
             <h2>How to Use Features</h2>
             <div class="feature-grid">
 
@@ -495,6 +548,7 @@ pavucontrol</div>
                             <li><strong>Right Click:</strong> Tap with two fingers.</li>
                             <li><strong>Scroll:</strong> Drag with two fingers.</li>
                         </ul>
+                        <p style="font-size: 0.9rem; color: var(--warning);"><strong>macOS Users:</strong> Ensure 'Accessibility' permission is granted in System Settings.</p>
                     </div>
                 </div>
 
@@ -508,11 +562,9 @@ pavucontrol</div>
                         <p>Extend your desktop workspace to your Android device.</p>
                         <br>
                         <ul>
-                            <li><strong>Step 1:</strong> Download & Extract <strong>usbmmidd_v2</strong> (link above).</li>
-                            <li><strong>Step 2:</strong> Open Command Prompt as Admin in that folder.</li>
-                            <li><strong>Step 3:</strong> Run: <br><code style="background:#333; padding:2px 5px; border-radius:4px; font-size:0.85rem;">deviceinstaller64 install usbmmidd.inf usbmmidd</code></li>
-                            <li><strong>Step 4:</strong> On PC: <em>Settings > System > Display > Extend these displays</em>.</li>
-                            <li><strong>Step 5:</strong> On Phone: Open <strong>Monitor</strong> tab.</li>
+                            <li><strong>Windows:</strong> Download & Install <strong>usbmmidd_v2</strong>. Go to <em>Settings > System > Display > Extend these displays</em>.</li>
+                            <li><strong>macOS:</strong> Download & Install <strong>BetterDisplay</strong> to create a virtual dummy display. Go to <em>System Settings > Displays</em> to arrange it.</li>
+                            <li><strong>Linux:</strong> Works natively with X11/Wayland dummy displays.</li>
                         </ul>
                     </div>
                 </div>
@@ -521,15 +573,15 @@ pavucontrol</div>
                     <div class="feature-header">
                         <span class="feature-icon">🎮</span>
                         <h3>Gamepad (Xbox/PS)</h3>
-                        <span class="setup-tag tag-easy">No Setup</span>
+                        <span class="setup-tag tag-easy">Auto-Map</span>
                     </div>
                     <div class="feature-body">
                         <p>Play PC games using your phone as a controller.</p>
                         <br>
                         <ul>
-                            <li><strong>Layouts:</strong> Toggle between Xbox and PlayStation layouts in the app.</li>
-                            <li><strong>Haptics:</strong> Turn on/off Vibration using the vibration button.</li>
-                            <li><strong>Compatibility:</strong> Works with Steam, Epic Games, and Emulators.</li>
+                            <li><strong>Windows:</strong> Emulates an Xbox 360 controller natively (Requires ViGEmBus driver).</li>
+                            <li><strong>Linux:</strong> Handled automatically via <code>uinput</code>.</li>
+                            <li><strong style="color: var(--warning);">macOS 🚫 Not Supported:</strong> Native controllers are strictly blocked by Apple. Gamepad mode does not currently work on Mac.</li>
                         </ul>
                     </div>
                 </div>
@@ -538,15 +590,15 @@ pavucontrol</div>
                     <div class="feature-header">
                         <span class="feature-icon">🎤</span>
                         <h3>Microphone</h3>
-                        <span class="setup-tag tag-req">VB-Cable Req</span>
+                        <span class="setup-tag tag-req">Driver Req</span>
                     </div>
                     <div class="feature-body">
-                        <p>Use your phone as a high-quality PC mic.</p>
+                        <p>Use your phone as a high-quality wireless PC mic.</p>
                         <br>
                         <ul>
-                            <li><strong>Step 1:</strong> Install <strong>VB-Cable</strong> driver.</li>
-                            <li><strong>Step 2:</strong> Open Use As app > Click <strong>Microphone</strong>.</li>
-                            <li><strong>Step 3:</strong> In Zoom/Discord, set Input Device to <strong>"CABLE Output"</strong>.</li>
+                            <li><strong>Windows:</strong> Install <strong>VB-Cable</strong>. In Zoom/Discord, set Input Device to <strong>"CABLE Output"</strong>.</li>
+                            <li><strong>macOS:</strong> Install <strong>BlackHole 2ch</strong>. In Zoom/Discord, set Input Device to <strong>"BlackHole 2ch"</strong>.</li>
+                            <li><strong>Linux:</strong> Use <strong>pavucontrol</strong> to route your meeting app to "UseAs_Mic".</li>
                         </ul>
                     </div>
                 </div>
@@ -558,12 +610,12 @@ pavucontrol</div>
                         <span class="setup-tag tag-req">Driver Req</span>
                     </div>
                     <div class="feature-body">
-                        <p>Stream phone camera to PC for meetings or streaming.</p>
+                        <p>Stream your phone camera to your PC for meetings or streaming.</p>
                         <br>
                         <ul>
-                            <li><strong>Step 1:</strong> Install <strong>Unity Capture</strong> driver (see Downloads).</li>
-                            <li><strong>Step 2:</strong> In the Server App, open the Camera tab.</li>
-                            <li><strong>Step 3:</strong> In Zoom/OBS, select <strong>"Unity Video Capture"</strong> as the source.</li>
+                            <li><strong>Windows:</strong> Install <strong>Unity Capture</strong>. In Zoom/OBS, select <strong>"Unity Video Capture"</strong>.</li>
+                            <li><strong>macOS:</strong> Install <strong>OBS Studio</strong>. Open OBS, click "Start Virtual Camera", then select <strong>"OBS Virtual Camera"</strong> in Zoom.</li>
+                            <li><strong>Linux:</strong> Ensure <strong>v4l2loopback</strong> is running. Select "UseAs Cam" in your app.</li>
                         </ul>
                     </div>
                 </div>
@@ -572,32 +624,33 @@ pavucontrol</div>
                     <div class="feature-header">
                         <span class="feature-icon">🔊</span>
                         <h3>PC Speaker</h3>
-                        <span class="setup-tag tag-req">Stereo Mix</span>
+                        <span class="setup-tag tag-easy">Built-in</span>
                     </div>
                     <div class="feature-body">
                         <p>Listen to PC audio on your phone wirelessly.</p>
                         <br>
                         <ul>
-                            <li><strong>Setup:</strong> Enable "Stereo Mix" in Windows Sound Settings.</li>
-                            <li><strong>Usage:</strong> Open Speaker tab on phone > Tap Toggle.</li>
-                            <li><strong>Auto-Stop:</strong> Streaming stops automatically when you close the app to save battery.</li>
+                            <li><strong>Windows:</strong> Enable "Stereo Mix" in Windows Sound Settings.</li>
+                            <li><strong>macOS:</strong> Use <strong>BlackHole 2ch</strong> to route system output to the UseAs Server.</li>
+                            <li><strong>Linux:</strong> Use <strong>pavucontrol</strong> to set UseAs Server output to your desired sink.</li>
+                            <li><strong>Auto-Stop:</strong> Streaming stops automatically when you close the app.</li>
                         </ul>
                     </div>
                 </div>
 
-                <div class="feature-card">
+                <div class="feature-card full-width">
                     <div class="feature-header">
                         <span class="feature-icon">📂</span>
-                        <h3>File Transfer</h3>
+                        <h3>File Transfer & Clipboard Sync</h3>
                         <span class="setup-tag tag-easy">Easy</span>
                     </div>
                     <div class="feature-body">
-                        <p>Send photos, videos, or text between devices.</p>
+                        <p>Send photos, videos, or text seamlessly across all operating systems.</p>
                         <br>
                         <ul>
                             <li><strong>Phone to PC:</strong> Select file in app > Send. Saves to <code>Downloads/UseAs_Received</code>.</li>
-                            <li><strong>PC to Phone:</strong> Drag & Drop file onto the Server Window.</li>
-                            <li><strong>Clipboard:</strong> Copy text on one device, it auto-copies to the other.</li>
+                            <li><strong>PC to Phone:</strong> Click the "Send File" button in the UseAs Server app on your computer.</li>
+                            <li><strong>Clipboard:</strong> Copy text on one device, it auto-copies to the other instantly.</li>
                         </ul>
                     </div>
                 </div>
@@ -610,12 +663,10 @@ pavucontrol</div>
             <details>
                 <summary>⚠️ Phone cannot find PC (Stuck on Scanning)</summary>
                 <div class="faq-content">
-                    <p>This is usually a Windows Firewall issue.</p>
+                    <p>This is usually a Windows/Linux Firewall issue.</p>
                     <ol style="margin-left: 20px; margin-top: 10px;">
-                        <li>Search for <em>"Allow an app through Windows Firewall"</em>.</li>
-                        <li>Click <strong>Change Settings</strong>.</li>
-                        <li>Find <code>UseAsServer.exe</code> or <code>python</code>.</li>
-                        <li><strong>Check BOTH boxes:</strong> ☑ Private and ☑ Public.</li>
+                        <li><strong>Windows:</strong> Search for <em>"Allow an app through Windows Firewall"</em> > Change Settings > Check BOTH Private and Public for <code>UseAsServer.exe</code>.</li>
+                        <li><strong>macOS:</strong> Ensure you are on the same Wi-Fi network and your router does not have "AP Isolation" enabled.</li>
                     </ol>
                 </div>
             </details>
@@ -628,14 +679,14 @@ pavucontrol</div>
             <details>
                 <summary>🎤 Microphone not working in Discord</summary>
                 <div class="faq-content">
-                    <p>Ensure you have selected <strong>"CABLE Output"</strong> as your Input Device in Discord settings, not "Default".</p>
+                    <p>Ensure you have selected <strong>"CABLE Output"</strong> (Windows) or <strong>"BlackHole 2ch"</strong> (macOS) as your Input Device in Discord settings, not "Default".</p>
                 </div>
             </details>
             <details>
                 <summary>🎮 Controller connected but not moving in game</summary>
                 <div class="faq-content">
-                    <p>Some games require "Xbox 360 Controller" specifically. Switch the layout to Xbox in the app. Restart the game after connecting.</p>
-                    <p><strong>Note:</strong> Ensure you have installed the ViGEmBus driver from the Downloads section above.</p>
+                    <p>Some PC games strictly require an "Xbox 360 Controller". Switch the layout to Xbox in the Android app. Restart the game after connecting.</p>
+                    <p><strong>Windows Note:</strong> Ensure you have installed the ViGEmBus driver from the Downloads section above.</p>
                 </div>
             </details>
         </section>
@@ -643,9 +694,27 @@ pavucontrol</div>
     </div>
 
     <footer>
-        <p>&copy; 2025 Use As. Built for Android, Windows & Linux.</p>
+        <p>&copy; 2025 Use As. Built for Android, Windows, macOS & Linux.</p>
     </footer>
 
+    <script>
+        function openTab(osName) {
+            // Hide all tab content
+            let tabContents = document.getElementsByClassName("tab-content");
+            for (let i = 0; i < tabContents.length; i++) {
+                tabContents[i].classList.remove("active");
+            }
+
+            // Remove active class from all buttons
+            let tabButtons = document.getElementsByClassName("tab-btn");
+            for (let i = 0; i < tabButtons.length; i++) {
+                tabButtons[i].classList.remove("active");
+            }
+
+            // Show current tab and add active class to clicked button
+            document.getElementById(osName).classList.add("active");
+            document.querySelector(`button[data-os='${osName}']`).classList.add("active");
+        }
+    </script>
 </body>
 </html>
-
