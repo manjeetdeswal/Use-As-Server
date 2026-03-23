@@ -37,7 +37,7 @@ if sys.platform == "win32":
     from ctypes import windll, wintypes
 # --- CONSTANTS ---
 APP_VERSION = "1.3"
-GITHUB_REPO = "manjeetdeswal/Use-As-Server" # ⚠️ CHANGE THIS to your actual "user/repo"
+GITHUB_REPO = "manjeetdeswal/Use-As-Server" # 
 GITHUB_URL = f"https://github.com/{GITHUB_REPO}"
 SETTINGS_FILE = Path.home() / "Downloads" / "UseAs_Received" / "server_settings.json"
 # ============================================
