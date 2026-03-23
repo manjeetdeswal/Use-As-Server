@@ -10,6 +10,7 @@
 
 [**🌐 Visit Official Website & Guide**](https://manjeetdeswal.github.io/Use-As-Server/)
 
+[**🌐 Download Android App**](https://play.google.com/store/apps/details?id=com.jeet_studio.use_as)
 <p align="center">
   <img src="https://github.com/manjeetdeswal/Use-As-Server/blob/main/ss/Screenshot%202026-01-07%20152541.png?raw=true" width="45%" alt="Home Screen" />
   <img src="https://github.com/manjeetdeswal/Use-As-Server/blob/main/ss/Screenshot%202026-01-07%20152549.png?raw=true" width="45%" alt="Smart Touchpad" />
