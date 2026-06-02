@@ -36,18 +36,17 @@ if sys.platform == "win32":
     import ctypes
     from ctypes import windll, wintypes
 # --- CONSTANTS ---
-APP_VERSION = "1.3"
-GITHUB_REPO = "manjeetdeswal/Use-As-Server" # 
+APP_VERSION = "1.5"
+GITHUB_REPO = "manjeetdeswal/Use-As-Server" 
 GITHUB_URL = f"https://github.com/{GITHUB_REPO}"
+
 SETTINGS_FILE = Path.home() / "Downloads" / "UseAs_Received" / "server_settings.json"
-# ============================================
-# SERVER CODE (async websockets running in a background thread)
-# ============================================
+
 
 COLORS = {
     "bg": "#1e1e1e",
     "fg": "#ffffff",
-    "accent": "#00e676",      # Android Green
+    "accent": "#00e676",      
     "accent_hover": "#00c853",
     "secondary": "#2d2d2d",
     "highlight": "#3d3d3d",
@@ -262,9 +261,12 @@ class UnifiedRemoteServer:
         """Return an async handler that captures self."""
 
         async def handler(websocket):
+            import asyncio
+        
+            self.loop = asyncio.get_running_loop()
             self.clients.add(websocket)
             remote_addr = f"{websocket.remote_address[0]}:{websocket.remote_address[1]}"
-            self._put("log", f"✅ Client connected: {remote_addr}")
+            self._put("log", f"Client connected: {remote_addr}")
             self._put("client_count", len(self.clients))
 
             try:
@@ -461,8 +463,8 @@ class UnifiedRemoteServer:
             if self._loop:
                 asyncio.run_coroutine_threadsafe(self._broadcast_bytes(end_packet), self._loop)
 
-            print(f"✅ COMPLETE. Sent {total_sent} bytes.")
-            self._put("log", f"✅ Sent {filename}")
+            print(f" COMPLETE. Sent {total_sent} bytes.")
+            self._put("log", f" Sent {filename}")
 
         except Exception as e:
             print(f"Error: {e}")
@@ -514,7 +516,7 @@ class UnifiedRemoteServer:
             # 4. Handle End of File
             if is_end:
                 abs_path = file_path.absolute()
-                print(f"✅ COMPLETE: File saved to {abs_path}")
+                print(f" COMPLETE: File saved to {abs_path}")
                 self._put("log", f"📂 Saved: {filename}")
                 self._put("log", f"📍 Path: {abs_path}")
                 self._put("file_received", str(file_path))
@@ -686,9 +688,7 @@ class UnifiedRemoteServer:
             if self.bg_mode == "blur":
                 blurred = cv2.GaussianBlur(img, (55, 55), 0)
 
-                # ✅ FIX: SWAPPED THE ORDER HERE
-                # BEFORE: np.where(mask_3d, img, blurred) -> Blurred face
-                # NOW:    np.where(mask_3d, blurred, img) -> Clears face, blurs background
+               
                 return np.where(mask_3d, blurred, img)
 
             elif self.bg_mode == "image" and self.bg_image_path:
@@ -701,7 +701,7 @@ class UnifiedRemoteServer:
                     if self.bg_image_cache.shape != img.shape:
                         self.bg_image_cache = cv2.resize(self.bg_image_cache, (img.shape[1], img.shape[0]))
 
-                    # ✅ FIX: SWAPPED HERE TOO
+                   
                     return np.where(mask_3d, self.bg_image_cache, img)
 
             return img
@@ -911,7 +911,6 @@ class UnifiedRemoteServer:
                 try:
                     import vgamepad as vg
                     # Create a NEW gamepad instance for THIS client
-                    # vgamepad automatically assigns the next available slot (Player 1, Player 2, etc.)
                     self.client_gamepads[client_ws] = vg.VX360Gamepad()
                     self._put("log", f"🎮 New Controller assigned to client")
                 except Exception as e:
@@ -934,6 +933,7 @@ class UnifiedRemoteServer:
                 'view': vg.XUSB_BUTTON.XUSB_GAMEPAD_BACK,
                 'menu': vg.XUSB_BUTTON.XUSB_GAMEPAD_START,
                 'xbox': vg.XUSB_BUTTON.XUSB_GAMEPAD_GUIDE,
+                # Compatibility aliases
                 'cross': vg.XUSB_BUTTON.XUSB_GAMEPAD_A,
                 'circle': vg.XUSB_BUTTON.XUSB_GAMEPAD_B,
                 'square': vg.XUSB_BUTTON.XUSB_GAMEPAD_X,
@@ -943,14 +943,18 @@ class UnifiedRemoteServer:
                 'share': vg.XUSB_BUTTON.XUSB_GAMEPAD_BACK,
                 'options': vg.XUSB_BUTTON.XUSB_GAMEPAD_START,
                 'ps': vg.XUSB_BUTTON.XUSB_GAMEPAD_GUIDE,
+                
+                # --- NEW BUTTONS ADDED HERE ---
+                'ls_btn': vg.XUSB_BUTTON.XUSB_GAMEPAD_LEFT_THUMB,  # Left Stick Click
+                'rs_btn': vg.XUSB_BUTTON.XUSB_GAMEPAD_RIGHT_THUMB, # Right Stick Click
+                'thumbl': vg.XUSB_BUTTON.XUSB_GAMEPAD_LEFT_THUMB,  # Alias
+                'thumbr': vg.XUSB_BUTTON.XUSB_GAMEPAD_RIGHT_THUMB  # Alias
             }
 
             buttons = state.get('buttons', {})
 
-            # Reset buttons/Directions logic
-            # Note: Ideally, you should only update changed buttons, but resetting/setting is safer for state sync
-
             for button, pressed in buttons.items():
+                # D-PAD LOGIC
                 if button.startswith('dpad_'):
                     direction = button.replace('dpad_', '')
                     dpad_map = {
@@ -964,6 +968,8 @@ class UnifiedRemoteServer:
                             current_gamepad.press_button(dpad_map[direction])
                         else:
                             current_gamepad.release_button(dpad_map[direction])
+                
+                # STANDARD BUTTON LOGIC
                 elif button in button_map:
                     if pressed:
                         current_gamepad.press_button(button_map[button])
@@ -992,35 +998,37 @@ class UnifiedRemoteServer:
             self._put("log", f"❌ Gamepad error: {e}")
 
     def _handle_display_request(self, payload):
-        """Handle display streaming request from Android (supports forced restart)."""
+        """Handle display streaming request."""
         try:
             import json
             request = json.loads(payload)
             action = request.get('action')
             self._put("log", f"🖥️ Display request: {action}")
 
-            # 1. READ PARAMS (Resolution + FPS)
             if action in ['start_display', 'change_resolution']:
                 self._display_width = int(request.get('width', 1280))
                 self._display_height = int(request.get('height', 720))
-                self._display_fps = int(request.get('fps', 30))  # <--- READ FPS
+                self._display_fps = int(request.get('fps', 30))
+                self._display_quality = int(request.get('quality', 35))
+                
+             
+                # Default to [0] (Primary) if missing
+                self._display_monitor_indices = request.get('monitor_indices', [0])
+                
+                # Handle legacy single index if sent by old app version
+                if 'monitor_index' in request and 'monitor_indices' not in request:
+                     idx = int(request.get('monitor_index'))
+                     self._display_monitor_indices = [idx] if idx >= 0 else [0, 1] # Fallback for "All"
 
-                self._put("log", f"🖥️ Config: {self._display_width}x{self._display_height} @ {self._display_fps} FPS")
+                self._put("log", f"🖥️ Config: {self._display_width}x{self._display_height} (Monitors: {self._display_monitor_indices})")
 
             if action == 'start_display':
-                # If a capture is already active, stop it first (force restart)
-                if hasattr(self, '_display_thread') and getattr(self,
-                                                                '_display_thread') is not None and self._display_thread.is_alive():
-                    self._put("log", "🔄 Restarting screen capture...")
+                if hasattr(self, '_display_thread') and getattr(self, '_display_thread') is not None and self._display_thread.is_alive():
                     self._stop_display_capture(wait_seconds=0.8)
 
                 self._display_active = True
-
                 import threading
-                self._display_thread = threading.Thread(
-                    target=self._capture_screen_loop,
-                    daemon=True
-                )
+                self._display_thread = threading.Thread(target=self._capture_screen_loop, daemon=True)
                 self._display_thread.start()
 
             elif action == 'stop_display':
@@ -1047,100 +1055,171 @@ class UnifiedRemoteServer:
                 if self._display_thread.is_alive():
                     self._put("log", "⚠️ Previous screen capture thread did not stop immediately (continuing).")
                 else:
-                    self._put("log", "✅ Previous screen capture stopped.")
+                    self._put("log", " Previous screen capture stopped.")
         except Exception as e:
             self._put("log", f"❌ Error stopping display capture: {e}")
 
     def _capture_screen_loop(self):
-        """Continuously capture and stream screen using DXCam (GPU Accelerated)."""
+        """Continuously capture specific monitor or combined screens (Flicker-Free using MSS)."""
         try:
-            import dxcam
+            import mss
             import cv2
             import base64
             import time
             import pyautogui
             import numpy as np
 
-            self._put("log", "🖥️ Screen capture started (DXCam GPU Mode)")
+            target_indices = self._display_monitor_indices
+            self._put("log", f"🖥️ Screen capture started via MSS. Targets: {target_indices}")
 
-            # Latency Tweak: JPEG Quality
-            encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), 50]
-
-            # --- INITIALIZE DXCAM ---
-            # output_color="BGR" ensures compatibility with OpenCV without conversion
-            camera = dxcam.create(output_idx=0, output_color="BGR")
-
-            # --- MOUSE HIDING LOGIC ---
+            current_quality = getattr(self, '_display_quality', 35)
+            encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), current_quality]
+            
             last_mouse_pos = (0, 0)
             last_move_time = time.time()
             HIDE_TIMEOUT = 3.0
 
-            if camera is None:
-                self._put("log", "❌ DXCam init failed! Fallback recommended.")
-                return
+            with mss.mss() as sct:
+                # sct.monitors[0] is all screens combined
+                # sct.monitors[1] is monitor 1, sct.monitors[2] is monitor 2
+                
+                frame_cache = [None] * len(target_indices)
 
-            while self._display_active:
-                start_time = time.time()
+                while self._display_active:
+                    start_time = time.time()
+                    
+                    target_w = self._display_width
+                    target_h = self._display_height
+                    target_fps = self._display_fps
+                    frame_duration = 1.0 / max(1, target_fps)
 
-                # --- READ DYNAMIC SETTINGS INSIDE LOOP ---
-                # This allows changing resolution/FPS without restarting the stream
-                target_w = self._display_width
-                target_h = self._display_height
-                target_fps = self._display_fps
-
-                # Calculate sleep time based on requested FPS
-                frame_duration = 1.0 / max(1, target_fps)
-
-                try:
-                    # 1. Capture Frame (GPU)
-                    frame = camera.grab()
-
-                    if frame is None:
-                        time.sleep(0.005)  # Tiny sleep to prevent CPU spin
-                        continue
-
-                    # 2. Draw Mouse
                     try:
-                        mx, my = pyautogui.position()
-                        if (mx, my) != last_mouse_pos:
-                            last_mouse_pos = (mx, my)
-                            last_move_time = time.time()
+                        # 1. CAPTURE & CACHE
+                        frames_ready = []
+                        
+                        for i, idx in enumerate(target_indices):
+                            mss_idx = idx + 1 # Convert app index (0-based) to MSS index (1-based)
+                            
+                            if mss_idx < len(sct.monitors):
+                                monitor = sct.monitors[mss_idx]
+                                sct_img = sct.grab(monitor)
+                                # mss returns BGRA, convert to BGR for OpenCV
+                                img = cv2.cvtColor(np.array(sct_img), cv2.COLOR_BGRA2BGR)
+                                
+                                frame_cache[i] = img
+                                frames_ready.append(img)
+                            else:
+                                # Fallback if monitor doesn't exist yet
+                                if frame_cache[i] is not None:
+                                    frames_ready.append(frame_cache[i])
+                                else:
+                                    frames_ready.append(None)
 
-                        if time.time() - last_move_time < HIDE_TIMEOUT:
-                            # Boundary check
-                            if 0 <= mx < frame.shape[1] and 0 <= my < frame.shape[0]:
-                                cv2.circle(frame, (mx, my), 8, (0, 0, 255), -1)
-                                cv2.circle(frame, (mx, my), 9, (255, 255, 255), 1)
-                    except:
-                        pass
+                        if any(f is None for f in frames_ready):
+                            time.sleep(0.01)
+                            continue
 
-                    # 3. Resize (Dynamic)
-                    if frame.shape[1] != target_w or frame.shape[0] != target_h:
-                        frame = cv2.resize(frame, (target_w, target_h), interpolation=cv2.INTER_LINEAR)
+                        # 2. STITCHING (For Multi-Monitor Selection)
+                        if len(frames_ready) > 1:
+                            base_h = frames_ready[0].shape[0]
+                            resized_frames = []
+                            for f in frames_ready:
+                                if f.shape[0] != base_h:
+                                    aspect = f.shape[1] / f.shape[0]
+                                    new_w = int(base_h * aspect)
+                                    f = cv2.resize(f, (new_w, base_h))
+                                resized_frames.append(f)
+                            final_frame = np.hstack(resized_frames)
+                        else:
+                            final_frame = frames_ready[0]
 
-                    # 4. Encode
-                    success, buffer = cv2.imencode('.jpg', frame, encode_param)
+                        # 3. DRAW MOUSE (Single Monitor Mode Only)
+                        if len(target_indices) == 1:
+                            try:
+                                mx, my = pyautogui.position()
+                                if (mx, my) != last_mouse_pos:
+                                    last_mouse_pos = (mx, my)
+                                    last_move_time = time.time()
+                                
+                                if time.time() - last_move_time < HIDE_TIMEOUT:
+                                    # Fix: Adjust absolute mouse coords to local monitor coords
+                                    monitor = sct.monitors[target_indices[0] + 1]
+                                    local_mx = mx - monitor["left"]
+                                    local_my = my - monitor["top"]
+                                    
+                                    if 0 <= local_mx < final_frame.shape[1] and 0 <= local_my < final_frame.shape[0]:
+                                        cv2.circle(final_frame, (local_mx, local_my), 8, (0, 0, 255), -1)
+                                        cv2.circle(final_frame, (local_mx, local_my), 9, (255, 255, 255), 1)
+                            except: pass
 
-                    if success:
-                        b64_data = base64.b64encode(buffer).decode('utf-8')
-                        self._send_video_frame(b64_data)
+                        # 4. FIT TO SCREEN
+                        h, w = final_frame.shape[:2]
+                        scale = min(target_w / w, target_h / h)
+                        
+                        if scale < 1.0:
+                            new_w = int(w * scale)
+                            new_h = int(h * scale)
+                            final_frame = cv2.resize(final_frame, (new_w, new_h), interpolation=cv2.INTER_NEAREST)
 
-                    # 5. Dynamic FPS Limiter
-                    elapsed = time.time() - start_time
-                    if elapsed < frame_duration:
-                        time.sleep(frame_duration - elapsed)
+                        # 5. ENCODE & SEND
+                        success, buffer = cv2.imencode('.jpg', final_frame, encode_param)
+                        if success:
+                            # Create a raw byte array. 
+                            # Header byte 0x03 means "This is a Video Frame"
+                            header = b'\x03'
+                            video_bytes = header + buffer.tobytes()
+                            
+                            # Send as binary, NOT json!
+                            # Ensure your server class has a way to send raw bytes.
+                            if hasattr(self, '_send_bytes_to_clients_threadsafe'):
+                                self._send_bytes_to_clients_threadsafe(video_bytes)
+                            else:
+                                # Fallback if you don't have a binary broadcast function yet
+                                asyncio.run_coroutine_threadsafe(
+                                    self._broadcast_bytes(video_bytes), self.loop
+                                )
 
-                except Exception as e:
-                    print(f"Cap error: {e}")
-                    time.sleep(0.1)
+                        # 6. FPS LIMIT
+                        while (time.time() - start_time) < frame_duration:
+                            pass
 
-            # Cleanup
-            del camera
+                    except Exception as e:
+                        time.sleep(0.1)
+
             self._put("log", "🖥️ Screen capture stopped")
 
         except Exception as e:
             self._put("log", f"❌ Capture Fatal Error: {e}")
             self._display_active = False
+
+    def _send_bytes_to_clients_threadsafe(self, data_bytes):
+        """Thread-safe way to broadcast raw binary data to all connected clients."""
+        if not hasattr(self, 'clients') or not self.clients:
+            return
+
+        async def broadcast():
+            dead_clients = set()
+            for ws in list(self.clients):
+                try:
+                    # Send raw bytes. websockets library automatically handles binary frames.
+                    await ws.send(data_bytes)
+                except websockets.exceptions.ConnectionClosed:
+                    dead_clients.add(ws)
+                except Exception as e:
+                    self._put("log", f"⚠️ Binary send error: {e}")
+                    dead_clients.add(ws)
+            
+            # Clean up disconnected clients
+            for ws in dead_clients:
+                if ws in self.clients:
+                    self.clients.remove(ws)
+
+        # Safely schedule the broadcast on the main event loop
+        if hasattr(self, 'loop') and self.loop.is_running():
+            import asyncio
+            asyncio.run_coroutine_threadsafe(broadcast(), self.loop)
+        else:
+            self._put("log", "❌ Cannot send bytes: Async loop is not running.")
 
     def _send_video_frame(self, base64_data):
         """Send video frame to Android using the async broadcast queue (thread-safe)."""
@@ -1292,7 +1371,7 @@ class UnifiedRemoteServer:
                             stream_callback=audio_callback
                         )
 
-                    self._put("log", f"✅ Stream Started: {current_rate}Hz")
+                    self._put("log", f" Stream Started: {current_rate}Hz")
                     stream.start_stream()
 
                     # E. Monitor Loop (Main thread is now free!)
@@ -1379,11 +1458,16 @@ class UnifiedRemoteServer:
         """
         try:
             import ctypes
-            import json
             import time
             import platform
 
-            event = json.loads(payload)
+            # THE FIX: Check if payload is already a dict to prevent json.loads() crash!
+            if isinstance(payload, str):
+                import json
+                event = json.loads(payload)
+            else:
+                event = payload
+
             button_id = event.get("button", 0)
 
             # "action" can be: "down", "up", or "click" (default)
@@ -1405,7 +1489,6 @@ class UnifiedRemoteServer:
                     elif action == "up":
                         ctypes.windll.user32.mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, 0)
                     else:  # "click" (Full press)
-                        # FIX: Add delay so games register the shot
                         ctypes.windll.user32.mouse_event(MOUSEEVENTF_LEFTDOWN, 0, 0, 0, 0)
                         if self.gaming_mode:
                             time.sleep(0.04)  # 40ms wait (Standard gaming mouse speed)
@@ -1455,12 +1538,18 @@ class UnifiedRemoteServer:
         """Handle mouse scroll using Windows native API."""
         try:
             import ctypes
-            event = json.loads(payload)
+            
+            # THE FIX: Check payload type
+            if isinstance(payload, str):
+                import json
+                event = json.loads(payload)
+            else:
+                event = payload
+                
             scroll_delta = event.get("scrollDelta", 0)
 
             if platform.system() == "Windows":
                 # MOUSEEVENTF_WHEEL = 0x0800
-                # Normalize scroll
                 wheel_delta = int(scroll_delta * 12)  # WHEEL_DELTA = 120
                 if wheel_delta != 0:
                     ctypes.windll.user32.mouse_event(0x0800, 0, 0, wheel_delta, 0)
@@ -1475,21 +1564,21 @@ class UnifiedRemoteServer:
             self._put("log", f"❌ Scroll error: {e}")
 
     def _handle_key_press(self, payload):
-        """Handle keyboard input (Respects Down/Up actions)."""
+        """Handle keyboard input (Respects Down/Up actions and Left/Right Modifiers)."""
         try:
             import platform
             import time
             import ctypes
+            import json
 
             event = json.loads(payload)
             key = event.get("key", "")
             modifiers = event.get("modifiers", [])
-            # 👇 READ THE ACTION (down, up, or press)
             action = event.get("action", "press")
 
             key_lower = key.lower()
 
-            # --- BRIGHTNESS HANDLER (Keep existing) ---
+            # --- BRIGHTNESS HANDLER ---
             if key_lower in ["brightnessup", "brightnessdown"]:
                 try:
                     import screen_brightness_control as sbc
@@ -1497,6 +1586,7 @@ class UnifiedRemoteServer:
                     if current_list:
                         current = current_list[0]
                         new_val = min(100, current + 10) if key_lower == "brightnessup" else max(0, current - 10)
+                        import threading
                         threading.Thread(target=lambda: sbc.set_brightness(new_val)).start()
                 except:
                     pass
@@ -1508,7 +1598,7 @@ class UnifiedRemoteServer:
                     modifiers.append("shift")
 
             if platform.system() == "Windows":
-                # Virtual-Key Codes
+                # Virtual-Key Codes including Left/Right variants
                 VK_MAP = {
                     'a': 0x41, 'b': 0x42, 'c': 0x43, 'd': 0x44, 'e': 0x45,
                     'f': 0x46, 'g': 0x47, 'h': 0x48, 'i': 0x49, 'j': 0x4A,
@@ -1520,7 +1610,10 @@ class UnifiedRemoteServer:
                     'backspace': 0x08, 'tab': 0x09, 'enter': 0x0D, 'esc': 0x1B,
                     'space': 0x20, 'caps': 0x14, 'caps lock': 0x14,
                     '←': 0x25, '↑': 0x26, '→': 0x27, '↓': 0x28,
-                    'shift': 0x10, 'ctrl': 0x11, 'alt': 0x12, 'meta': 0x5B, 'win': 0x5B, 'windows': 0x5B
+                    'shift': 0x10, 'shift_l': 0xA0, 'shift_r': 0xA1,
+                    'ctrl': 0x11, 'ctrl_l': 0xA2, 'ctrl_r': 0xA3,
+                    'alt': 0x12, 'alt_l': 0xA4, 'alt_r': 0xA5,
+                    'meta': 0x5B, 'win': 0x5B, 'win_l': 0x5B, 'win_r': 0x5C
                 }
 
                 vk_code = VK_MAP.get(key_lower, 0)
@@ -1528,7 +1621,6 @@ class UnifiedRemoteServer:
                 if vk_code:
                     scan_code = ctypes.windll.user32.MapVirtualKeyW(vk_code, 0)
 
-                    # Helper to handle modifiers
                     def trigger_modifiers(is_down):
                         flags = 0 if is_down else 2  # 0=Down, 2=Up
                         for mod in modifiers:
@@ -1537,20 +1629,18 @@ class UnifiedRemoteServer:
                                 mod_scan = ctypes.windll.user32.MapVirtualKeyW(mod_vk, 0)
                                 ctypes.windll.user32.keybd_event(mod_vk, mod_scan, flags, 0)
 
-                    # 👇 NEW LOGIC: Handle Specific Actions
                     if action == "down":
-                        trigger_modifiers(True)  # Press Modifiers
-                        ctypes.windll.user32.keybd_event(vk_code, scan_code, 0, 0)  # Press Key
-
-                    elif action == "up":
-                        ctypes.windll.user32.keybd_event(vk_code, scan_code, 2, 0)  # Release Key
-                        trigger_modifiers(False)  # Release Modifiers
-
-                    else:
-                        # "press" (Legacy / Macro behavior) - Do Full Click
                         trigger_modifiers(True)
                         ctypes.windll.user32.keybd_event(vk_code, scan_code, 0, 0)
-                        if self.gaming_mode:
+
+                    elif action == "up":
+                        ctypes.windll.user32.keybd_event(vk_code, scan_code, 2, 0)
+                        trigger_modifiers(False)
+
+                    else:
+                        trigger_modifiers(True)
+                        ctypes.windll.user32.keybd_event(vk_code, scan_code, 0, 0)
+                        if getattr(self, 'gaming_mode', False):
                             time.sleep(0.03)
                         ctypes.windll.user32.keybd_event(vk_code, scan_code, 2, 0)
                         trigger_modifiers(False)
@@ -1559,8 +1649,16 @@ class UnifiedRemoteServer:
                     # Fallback (PyAutoGUI)
                     import pyautogui
                     if key_lower == 'caps': key_lower = 'capslock'
-
-                    keys_to_press = [m.lower() for m in modifiers] + [key_lower]
+                    
+                    # Map Left/Right to PyAutoGUI equivalents
+                    pyautogui_mod_map = {
+                        'shift_l': 'shiftleft', 'shift_r': 'shiftright',
+                        'ctrl_l': 'ctrlleft', 'ctrl_r': 'ctrlright',
+                        'alt_l': 'altleft', 'alt_r': 'altright'
+                    }
+                    
+                    mapped_mods = [pyautogui_mod_map.get(m.lower(), m.lower()) for m in modifiers]
+                    keys_to_press = mapped_mods + [key_lower]
 
                     if action == "down":
                         for k in keys_to_press: pyautogui.keyDown(k)
@@ -1584,7 +1682,8 @@ class UnifiedRemoteServer:
                     pyautogui.hotkey(*keys_to_press)
 
         except Exception as e:
-            self._put("log", f"❌ Key error: {e}")
+            if hasattr(self, '_put'):
+                self._put("log", f"❌ Key error: {e}")
 
     def _handle_gamepad(self, payload):
         """Handle gamepad input (map to keyboard for now)."""
@@ -1633,7 +1732,7 @@ class UnifiedRemoteServer:
 
         try:
             self._broadcast_task = asyncio.create_task(self._broadcast_worker())
-            self._put("log", "✅ Broadcast worker started")
+            self._put("log", "Broadcast worker started")
         except Exception as e:
             self._put("log", f"⚠️ Failed to start broadcast worker: {e}")
 
@@ -1735,7 +1834,7 @@ class UnifiedRemoteServer:
         if self._thread.is_alive():
             self._put("log", "⚠️ Warning: server thread did not exit immediately")
         else:
-            self._put("log", "✅ Server stopped")
+            self._put("log", "Server stopped")
 
         self._thread = None
         self._loop = None
@@ -1802,414 +1901,791 @@ class SettingsDialog(ctk.CTkToplevel):
     def __init__(self, parent, prefs, callback_save):
         super().__init__(parent)
         self.title("Settings")
-        self.geometry("400x550")
+        self.geometry("460x580")
+        self.resizable(False, False)
         self.prefs = prefs
         self.callback_save = callback_save
-
-        # Modal behavior
+        self.configure(fg_color="#141414")
         self.transient(parent)
         self.grab_set()
-
-        # Layout container
-        self.grid_columnconfigure(0, weight=1)
-
-        # Title
-        ctk.CTkLabel(self, text="Configuration", font=("Segoe UI", 20, "bold")).pack(pady=(20, 10))
-
-        # --- GENERAL SETTINGS ---
-        frame_gen = ctk.CTkFrame(self)
-        frame_gen.pack(fill="x", padx=20, pady=10)
-
-        ctk.CTkLabel(frame_gen, text="General", font=("Segoe UI", 14, "bold"), text_color="#00e676").pack(anchor="w",
-                                                                                                          padx=15,
-                                                                                                          pady=(10, 5))
-
+ 
+        # Header
+        header = ctk.CTkFrame(self, fg_color="#1a1a1a", corner_radius=0, height=64)
+        header.pack(fill="x")
+        header.pack_propagate(False)
+        ctk.CTkLabel(header, text="SETTINGS", font=("Courier New", 18, "bold"),
+                      text_color="#00e676").pack(side="left", padx=24, pady=20)
+        ctk.CTkLabel(header, text=f"v{APP_VERSION}", font=("Courier New", 11),
+                      text_color="#555").pack(side="right", padx=24)
+ 
+        scroll = ctk.CTkScrollableFrame(self, fg_color="transparent", scrollbar_button_color="#2a2a2a",
+                                         scrollbar_button_hover_color="#00e676")
+        scroll.pack(fill="both", expand=True, padx=16, pady=(12, 0))
+ 
+        def section(parent, title):
+            f = ctk.CTkFrame(parent, fg_color="#1c1c1c", corner_radius=10,
+                              border_width=1, border_color="#2a2a2a")
+            f.pack(fill="x", pady=(0, 12))
+            ctk.CTkLabel(f, text=title, font=("Courier New", 11, "bold"),
+                          text_color="#00e676").pack(anchor="w", padx=16, pady=(12, 6))
+            sep = ctk.CTkFrame(f, height=1, fg_color="#2a2a2a")
+            sep.pack(fill="x", padx=16, pady=(0, 10))
+            return f
+ 
+        def toggle_row(parent, text, hint, var):
+            row = ctk.CTkFrame(parent, fg_color="transparent")
+            row.pack(fill="x", padx=16, pady=4)
+            left = ctk.CTkFrame(row, fg_color="transparent")
+            left.pack(side="left", fill="x", expand=True)
+            ctk.CTkLabel(left, text=text, font=("Segoe UI", 13), text_color="#e0e0e0",
+                          anchor="w").pack(anchor="w")
+            if hint:
+                ctk.CTkLabel(left, text=hint, font=("Segoe UI", 10), text_color="#555",
+                              anchor="w").pack(anchor="w")
+            ctk.CTkSwitch(row, text="", variable=var, width=48,
+                           button_color="#00e676", button_hover_color="#00c853",
+                           progress_color="#00e676").pack(side="right")
+ 
+        # General
+        sec1 = section(scroll, "  GENERAL")
         self.var_autostart_pc = ctk.BooleanVar(value=prefs.get("autostart_pc", False))
-        ctk.CTkSwitch(frame_gen, text="Auto-start with Windows", variable=self.var_autostart_pc).pack(anchor="w",
-                                                                                                      padx=15, pady=5)
-
+        toggle_row(sec1, "Auto-start with Windows", "Launch on login", self.var_autostart_pc)
         self.var_autostart_server = ctk.BooleanVar(value=prefs.get("autostart_server", False))
-        ctk.CTkSwitch(frame_gen, text="Auto-start Server on launch", variable=self.var_autostart_server).pack(
-            anchor="w", padx=15, pady=5)
-
+        toggle_row(sec1, "Auto-start server", "Start server immediately on launch", self.var_autostart_server)
         self.var_admin = ctk.BooleanVar(value=prefs.get("run_as_admin", False))
-        ctk.CTkSwitch(frame_gen, text="Request Admin Rights", variable=self.var_admin).pack(anchor="w", padx=15,
-                                                                                            pady=(5, 15))
-
-        # --- GAMING SETTINGS ---
-        frame_input = ctk.CTkFrame(self)
-        frame_input.pack(fill="x", padx=20, pady=10)
-
-        ctk.CTkLabel(frame_input, text="Input & Gaming", font=("Segoe UI", 14, "bold"), text_color="#00e676").pack(
-            anchor="w", padx=15, pady=(10, 5))
-
+        toggle_row(sec1, "Request admin rights", "Required for some input features", self.var_admin)
+        ctk.CTkFrame(sec1, height=8, fg_color="transparent").pack()
+ 
+        # Gaming
+        sec2 = section(scroll, "  INPUT & GAMING")
         self.var_gaming_mode = ctk.BooleanVar(value=prefs.get("gaming_mode", True))
-        ctk.CTkSwitch(frame_input, text="Gaming Mode (Low Latency)", variable=self.var_gaming_mode).pack(anchor="w",
-                                                                                                         padx=15,
-                                                                                                         pady=(5, 0))
-
-        ctk.CTkLabel(frame_input,
-                     text="Adds micro-delays so games detect input.\nDisable for faster desktop typing.",
-                     font=("Segoe UI", 11), text_color="gray").pack(anchor="w", padx=55, pady=(0, 15))
-
-        # --- PORT ---
-        frame_net = ctk.CTkFrame(self)
-        frame_net.pack(fill="x", padx=20, pady=10)
-
-        ctk.CTkLabel(frame_net, text="Server Port:", font=("Segoe UI", 12, "bold")).pack(side="left", padx=15)
-        self.ent_port = ctk.CTkEntry(frame_net, width=80, placeholder_text="8080")
+        toggle_row(sec2, "Gaming mode", "Micro-delays so games register input", self.var_gaming_mode)
+        ctk.CTkFrame(sec2, height=8, fg_color="transparent").pack()
+ 
+        # Network
+        sec3 = section(scroll, "  NETWORK")
+        net_row = ctk.CTkFrame(sec3, fg_color="transparent")
+        net_row.pack(fill="x", padx=16, pady=(0, 12))
+        ctk.CTkLabel(net_row, text="WebSocket port", font=("Segoe UI", 13), text_color="#e0e0e0").pack(side="left")
+        self.ent_port = ctk.CTkEntry(net_row, width=90, font=("Courier New", 13),
+                                      fg_color="#111", border_color="#2a2a2a",
+                                      text_color="#00e676", justify="center")
         self.ent_port.insert(0, str(prefs.get("port", 8080)))
-        self.ent_port.pack(side="right", padx=15, pady=10)
-
-        # --- SAVE BUTTON ---
-        ctk.CTkButton(self, text="Save & Close", fg_color="#00e676", text_color="black", hover_color="#00c853",
-                      height=40, font=("Segoe UI", 14, "bold"), command=self.save_and_close).pack(fill="x", padx=20,
-                                                                                                  pady=20,
-                                                                                                  side="bottom")
-
+        self.ent_port.pack(side="right")
+ 
+        # Save
+        ctk.CTkButton(self, text="SAVE CHANGES", font=("Courier New", 13, "bold"),
+                        fg_color="#00e676", text_color="#000", hover_color="#00c853",
+                        height=48, corner_radius=0, command=self.save_and_close).pack(
+            fill="x", padx=0, pady=0, side="bottom")
+ 
     def save_and_close(self):
         try:
             port = int(self.ent_port.get())
             if not (1024 <= port <= 65535): raise ValueError
         except:
-            messagebox.showerror("Invalid Port", "Port must be a number between 1024 and 65535")
+            messagebox.showerror("Invalid Port", "Port must be between 1024 and 65535")
             return
-
-        new_prefs = {
+        self.callback_save({
             "autostart_pc": self.var_autostart_pc.get(),
             "autostart_server": self.var_autostart_server.get(),
             "run_as_admin": self.var_admin.get(),
             "gaming_mode": self.var_gaming_mode.get(),
             "port": port
-        }
-        self.callback_save(new_prefs)
+        })
         self.destroy()
-
-
-
-
+ 
+ 
+# ============================================================
+# MAIN GUI — Fully redesigned
+# ============================================================
+ 
+ctk.set_appearance_mode("dark")
+ctk.set_default_color_theme("dark-blue")
+ 
+ 
 class ServerGUI:
+    # ── colour palette ──────────────────────────────────────
+    C_BG       = "#0d0d0d"
+    C_SURFACE  = "#141414"
+    C_CARD     = "#1a1a1a"
+    C_BORDER   = "#242424"
+    C_ACCENT   = "#00e676"
+    C_ACCENT2  = "#00c853"
+    C_ERR      = "#ff5252"
+    C_WARN     = "#ffd740"
+    C_DIM      = "#FFFFFF"
+    C_TEXT     = "#e8e8e8"
+    C_TEXT2    = "#999999"
+ 
     def __init__(self):
-        # 1. Main Window Setup
         self.root = ctk.CTk()
-        self.root.title(f"Use As Server v{APP_VERSION}")
-        self.root.geometry("900x700")
-
-        # 2. State & Prefs
+        self.root.title(f"Use As Server  ·  v{APP_VERSION}")
+        self.root.geometry("980x700")
+        self.root.minsize(860, 620)
+        self.root.configure(fg_color=self.C_BG)
+ 
         self.tray_icon = None
-        self.prefs = {
-            "autostart_pc": False,
-            "autostart_server": False,
-            "run_as_admin": False,
-            "gaming_mode": True,
-            "port": 8080
-        }
+        self.prefs = {"autostart_pc": False, "autostart_server": False,
+                      "run_as_admin": False, "gaming_mode": True, "port": 8080}
         self.load_preferences()
-
+ 
         try:
             if Path("icon.ico").exists(): self.root.iconbitmap("icon.ico")
-        except:
-            pass
-
+        except: pass
+ 
         self.update_queue = queue.Queue()
         self.server = None
         self.is_running = False
-
-        # 3. Build UI
-        self.setup_ui()
+        self._client_count = 0
+ 
+        self._build_root_layout()
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
-
-        # 4. Auto-Start Logic
+        self._set_title_bar_color()
+        self.check_for_updates(manual=False)
+ 
         if self.prefs["autostart_server"]:
             self.root.after(1000, self.toggle_server)
-
+ 
         self.root.after(100, self.process_queue)
         self.root.after(50, self.update_preview)
 
-    # --- MISSING FUNCTION ADDED HERE ---
-    def open_settings(self):
-        SettingsDialog(self.root, self.prefs, self.save_preferences)
 
-    # --- HELPERS ---
+
+
+
+    def _set_title_bar_color(self):
+        """Forces the Windows title bar to match the theme (Windows 11+)."""
+        if sys.platform != "win32":
+            return
+            
+        try:
+            import ctypes
+            # Force the window to draw first so we can grab its ID
+            self.root.update_idletasks()
+            hwnd = ctypes.windll.user32.GetParent(self.root.winfo_id())
+            
+            # Windows DWM Constants
+            DWMWA_CAPTION_COLOR = 35
+            DWMWA_TEXT_COLOR = 36
+            
+            # Colors must be in COLORREF format: 0x00bbggrr (Blue Green Red)
+            # Background: #0d0d0d -> 0x000d0d0d
+            # Text: #00e676 -> 0x0076e600
+            bg_color = ctypes.c_int(0x000d0d0d)
+            fg_color = ctypes.c_int(0x0076e600)
+            
+            # Apply the colors
+            ctypes.windll.dwmapi.DwmSetWindowAttribute(
+                hwnd, DWMWA_CAPTION_COLOR, ctypes.byref(bg_color), ctypes.sizeof(bg_color)
+            )
+            ctypes.windll.dwmapi.DwmSetWindowAttribute(
+                hwnd, DWMWA_TEXT_COLOR, ctypes.byref(fg_color), ctypes.sizeof(fg_color)
+            )
+        except Exception as e:
+            print(f"Could not set title bar color (might be an older Windows version): {e}")
+
+    def check_for_updates(self, manual=False):
+        """Spawns a background thread to check GitHub for updates."""
+        import threading
+        threading.Thread(target=self._fetch_latest_version, args=(manual,), daemon=True).start()
+
+    def _fetch_latest_version(self, manual):
+        import urllib.request
+        import json
+        import webbrowser
+        from tkinter import messagebox
+
+        # 👇 1. REMOVE 'self.' FROM GITHUB_REPO
+        url = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
+        
+        try:
+            req = urllib.request.Request(
+                url, 
+                headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
+            )
+            with urllib.request.urlopen(req, timeout=5) as response:
+                data = json.loads(response.read().decode())
+                
+                remote_tag = data.get("tag_name", "0.0").strip().lower().lstrip('v')
+                
+                # 👇 2. USE 'APP_VERSION' INSTEAD OF 'self.CURRENT_VERSION'
+                current_tag = APP_VERSION.strip().lower().lstrip('v')
+
+                if float(remote_tag) > float(current_tag):
+                    # 👇 3. REMOVE 'self.' FROM GITHUB_REPO HERE TOO
+                    html_url = data.get("html_url", f"https://github.com/{GITHUB_REPO}/releases")
+                    
+                    self.root.after(0, lambda: self._show_update_dialog(remote_tag, html_url))
+                elif manual:
+                    self.root.after(0, lambda: messagebox.showinfo("Up to Date", f"You are running the latest version (v{APP_VERSION})."))
+        except Exception as e:
+            if manual:
+                self.root.after(0, lambda: messagebox.showerror("Update Error", f"Could not check for updates:\n{e}"))
+
+    def _show_update_dialog(self, new_version, download_url):
+        import webbrowser
+        from tkinter import messagebox
+        
+        ans = messagebox.askyesno(
+            "Update Available", 
+            f"A new version (v{new_version}) is available!\n\nWould you like to open GitHub to download it?"
+        )
+        if ans:
+            webbrowser.open(download_url)
+ 
+    # ── preferences ────────────────────────────────────────
     def load_preferences(self):
         try:
             if SETTINGS_FILE.exists():
                 with open(SETTINGS_FILE, 'r') as f: self.prefs.update(json.load(f))
-        except:
-            pass
-
+        except: pass
+ 
     def save_preferences(self, new_prefs=None):
         if new_prefs: self.prefs = new_prefs
         try:
             SETTINGS_FILE.parent.mkdir(parents=True, exist_ok=True)
-            with open(SETTINGS_FILE, 'w') as f:
-                json.dump(self.prefs, f, indent=4)
-        except:
-            pass
+            with open(SETTINGS_FILE, 'w') as f: json.dump(self.prefs, f, indent=4)
+        except: pass
         if sys.platform == "win32":
             try:
-                key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\Run", 0,
-                                     winreg.KEY_SET_VALUE)
-                app_path = sys.executable if getattr(sys, 'frozen', False) else f'"{sys.executable}" "{__file__}"'
+                key = winreg.OpenKey(winreg.HKEY_CURRENT_USER,
+                                     r"Software\Microsoft\Windows\CurrentVersion\Run",
+                                     0, winreg.KEY_SET_VALUE)
+                app_path = (sys.executable if getattr(sys, 'frozen', False)
+                            else f'"{sys.executable}" "{__file__}"')
                 if self.prefs["autostart_pc"]:
                     winreg.SetValueEx(key, "UseAsServer", 0, winreg.REG_SZ, app_path)
                 else:
-                    try:
-                        winreg.DeleteValue(key, "UseAsServer")
-                    except:
-                        pass
+                    try: winreg.DeleteValue(key, "UseAsServer")
+                    except: pass
                 winreg.CloseKey(key)
-            except:
-                pass
-
+            except: pass
+ 
+    def open_settings(self):
+        SettingsDialog(self.root, self.prefs, self.save_preferences)
+ 
+    # ── tray ───────────────────────────────────────────────
     def create_default_icon(self):
-        width = 64;
-        height = 64;
-        color1 = "#00e676";
-        color2 = "#1e1e1e"
-        image = Image.new('RGB', (width, height), color1)
-        dc = ImageDraw.Draw(image)
-        dc.rectangle((width // 4, height // 4, 3 * width // 4, 3 * height // 4), fill=color2)
-        return image
-
+        img = Image.new('RGB', (64, 64), "#00e676")
+        dc = ImageDraw.Draw(img)
+        dc.rectangle((16, 16, 48, 48), fill="#141414")
+        return img
+ 
     def minimize_to_tray(self):
         self.root.withdraw()
         image = Image.open("icon.ico") if Path("icon.ico").exists() else self.create_default_icon()
-        menu = (item('Restore', self.restore_from_tray, default=True), item('Stop Server & Quit', self.quit_app))
+        menu = (item('Restore', self.restore_from_tray, default=True),
+                item('Stop & Quit', self.quit_app))
         self.tray_icon = pystray.Icon("UseAsServer", image, "Use As Server", menu)
         self.tray_icon.run_detached()
-
+ 
     def restore_from_tray(self, icon=None, item=None):
         if self.tray_icon: self.tray_icon.stop(); self.tray_icon = None
         self.root.after(0, self.root.deiconify)
-
+ 
     def quit_app(self, icon=None, item=None):
         if self.tray_icon: self.tray_icon.stop()
         self.root.after(0, self.on_closing)
-
-    # --- UI SETUP ---
-    def setup_ui(self):
-        self.root.grid_columnconfigure(1, weight=1)
+ 
+    # ── root layout ────────────────────────────────────────
+    def _build_root_layout(self):
+        self.root.grid_columnconfigure(0, weight=0)   # sidebar (fixed)
+        self.root.grid_columnconfigure(1, weight=1)   # content
         self.root.grid_rowconfigure(0, weight=1)
+ 
+        self._build_sidebar()
+        self._build_content_area()
+        self._nav_go("dashboard")
+ 
+    # ── sidebar ────────────────────────────────────────────
+    def _build_sidebar(self):
+        sb = ctk.CTkFrame(self.root, width=200, fg_color=self.C_SURFACE,
+                           corner_radius=0, border_width=0)
+        sb.grid(row=0, column=0, sticky="nsew")
+        sb.grid_propagate(False)
+        sb.grid_rowconfigure(10, weight=1)
+ 
+        # Logo block
+        logo_f = ctk.CTkFrame(sb, fg_color="#0d0d0d", corner_radius=0, height=80)
+        logo_f.pack(fill="x")
+        logo_f.pack_propagate(False)
+        ctk.CTkLabel(logo_f, text="USE AS", font=("Courier New", 15, "bold"),
+                      text_color=self.C_DIM, anchor="w").place(x=20, y=12)
+                      
+        
+        ctk.CTkLabel(logo_f, text="SERVER", font=("Courier New", 22, "bold"),
+                      text_color=self.C_ACCENT, anchor="w").place(x=16, y=38)
+ 
+        # Thin accent line
+        ctk.CTkFrame(sb, height=2, fg_color=self.C_ACCENT, corner_radius=0).pack(fill="x")
+ 
+        # Nav buttons
+        self._active_nav = "dashboard"
+        self._nav_buttons = {}
+ 
+        nav_items = [
+            ("dashboard", "⬛  Dashboard"),
+            ("camera",    "◉  Camera Studio"),
+            ("sharing",   "⇆  Sharing"),
+        ]
+ 
+        nav_container = ctk.CTkFrame(sb, fg_color="transparent")
+        nav_container.pack(expand=True, fill="x")
 
-        # 1. SIDEBAR
-        self.sidebar = ctk.CTkFrame(self.root, width=140, corner_radius=0)
-        self.sidebar.grid(row=0, column=0, sticky="nsew")
+        # 👇 2. UPDATE THE LOOP TO PACK INTO 'nav_container' 👇
+        for key, label in nav_items:
+            btn = ctk.CTkButton(
+                nav_container, text=label, anchor="w", 
+                font=("Segoe UI", 15),
+                fg_color="transparent",
+                text_color=self.C_TEXT2,
+                hover_color="#1e1e1e",
+                corner_radius=6, height=40,
+                command=lambda k=key: self._nav_go(k)
+            )
+            btn.pack(fill="x", padx=10, pady=2)
+            self._nav_buttons[key] = btn
+ 
+          # set initial active
+ 
+        # Bottom area
+        bottom = ctk.CTkFrame(sb, fg_color="transparent")
+        bottom.pack(side="bottom", fill="x", padx=10, pady=16)
+ 
+        # Connection badge
+        self.lbl_clients = ctk.CTkLabel(
+            bottom, text="● 0 connected",
+            font=("Courier New", 15), text_color=self.C_DIM)
+        self.lbl_clients.pack(anchor="w", pady=(0, 8))
+ 
+        # Settings Button
+        ctk.CTkButton(bottom, text="⚙  Settings", height=42,
+                       font=("Segoe UI", 14, "bold"), 
+                       fg_color="#000000", hover_color="#0a2914", text_color=self.C_ACCENT,
+                       border_width=1.5, border_color=self.C_ACCENT,
+                       corner_radius=8, command=self.open_settings).pack(fill="x", pady=(0, 8))
+        
+        ctk.CTkButton(bottom, text="🔄  Check for Update", height=42,
+                       font=("Segoe UI", 14, "bold"), 
+                       fg_color="#000000", hover_color="#0a2914", text_color=self.C_ACCENT,
+                       border_width=1.5, border_color=self.C_ACCENT,
+                       corner_radius=8, command=lambda: self.check_for_updates(manual=True)).pack(fill="x", pady=(0, 8))
 
-        ctk.CTkLabel(self.sidebar, text="Use As\nServer", font=("Segoe UI", 24, "bold"), text_color="#00e676").pack(
-            pady=30)
+        # Tray Button
+        ctk.CTkButton(bottom, text="⊡  Tray", height=42,
+                       font=("Segoe UI", 14, "bold"), 
+                       fg_color="#000000", hover_color="#0a2914", text_color=self.C_ACCENT,
+                       border_width=1.5, border_color=self.C_ACCENT,
+                       corner_radius=8, command=self.minimize_to_tray).pack(fill="x")
+ 
+    def _nav_go(self, key):
+        self._active_nav = key
+        for k, btn in self._nav_buttons.items():
+            if k == key:
+                btn.configure(fg_color="#1f2e24", text_color=self.C_ACCENT)
+            else:
+                btn.configure(fg_color="transparent", text_color=self.C_TEXT2)
+        # Show matching frame
+        for k, frame in self._pages.items():
+            if k == key:
+                frame.grid(row=0, column=0, sticky="nsew")
+            else:
+                frame.grid_forget()
+ 
+    # ── content area ───────────────────────────────────────
+    def _build_content_area(self):
+        self._content = ctk.CTkFrame(self.root, fg_color=self.C_BG, corner_radius=0)
+        self._content.grid(row=0, column=1, sticky="nsew")
+        self._content.grid_columnconfigure(0, weight=1)
+        self._content.grid_rowconfigure(0, weight=1)
+ 
+        self._pages = {}
+        for key, builder in [
+            ("dashboard", self._build_dashboard),
+            ("camera",    self._build_camera),
+            ("sharing",   self._build_sharing),
+        ]:
+            page = ctk.CTkFrame(self._content, fg_color=self.C_BG, corner_radius=0)
+            page.grid_columnconfigure(0, weight=1)
+            page.grid_rowconfigure(0, weight=1)
+            builder(page)
+            self._pages[key] = page
+ 
+    # ── helpers ────────────────────────────────────────────
+    def _card(self, parent, **kw):
+        return ctk.CTkFrame(parent, fg_color=self.C_CARD, corner_radius=10,
+                             border_width=1, border_color=self.C_BORDER, **kw)
+ 
+    def _section_label(self, parent, text):
+        ctk.CTkLabel(parent, text=text, font=("Courier New", 10, "bold"),
+                      text_color=self.C_DIM).pack(anchor="w", padx=4, pady=(0, 4))
+ 
+    def _pill_btn(self, parent, text, command, accent=False, danger=False, **kw):
+        # Default style matches the new Feature Chips (Black with Green Border)
+        fg = "#000000"
+        hov = "#0a2914"
+        tc = self.C_ACCENT
+        bw = 1.5
+        bc = self.C_ACCENT
 
-        self.btn_nav_dash = ctk.CTkButton(self.sidebar, text="Dashboard", fg_color="transparent", border_width=2,
-                                          text_color=("gray10", "#DCE4EE"),
-                                          command=lambda: self.tabview.set("Dashboard"))
-        self.btn_nav_dash.pack(pady=10, padx=20, fill="x")
+        if danger:
+            fg, hov, tc = self.C_ERR, "#cc3333", "#ffffff"
+            bw = 0
+        elif accent:
+            # Accent buttons become solid green with black text
+            fg, hov, tc = self.C_ACCENT, self.C_ACCENT2, "#000000"
+            bw = 0
 
-        self.btn_nav_cam = ctk.CTkButton(self.sidebar, text="Camera Studio", fg_color="transparent", border_width=2,
-                                         text_color=("gray10", "#DCE4EE"),
-                                         command=lambda: self.tabview.set("Camera"))
-        self.btn_nav_cam.pack(pady=10, padx=20, fill="x")
+        return ctk.CTkButton(parent, text=text, command=command,
+                              fg_color=fg, hover_color=hov, text_color=tc,
+                              font=("Segoe UI", 14, "bold"), corner_radius=8, height=42,
+                              border_width=bw, border_color=bc, **kw)
+ 
+    # ── Dashboard ──────────────────────────────────────────
+    def _build_dashboard(self, parent):
+        scroll = ctk.CTkScrollableFrame(parent, fg_color=self.C_BG,
+                                          scrollbar_button_color="#1e1e1e",
+                                          scrollbar_button_hover_color=self.C_ACCENT)
+        scroll.grid(row=0, column=0, sticky="nsew", padx=24, pady=20)
+        scroll.grid_columnconfigure(0, weight=1)
+ 
+        # Page title
+        ctk.CTkLabel(scroll, text="DASHBOARD",
+                      font=("Courier New", 13, "bold"), text_color=self.C_DIM).pack(anchor="w")
+        ctk.CTkFrame(scroll, height=1, fg_color=self.C_BORDER).pack(fill="x", pady=(4, 16))
+ 
+        # ─ Server control card ─────────────────────────────
+        ctrl = self._card(scroll)
+        ctrl.pack(fill="x", pady=(0, 16))
+ 
+        top_row = ctk.CTkFrame(ctrl, fg_color="transparent")
+        top_row.pack(fill="x", padx=20, pady=(20, 12))
+ 
+        # Status indicator
+        ind_f = ctk.CTkFrame(top_row, fg_color="transparent")
+        ind_f.pack(side="left")
+        self._status_dot = ctk.CTkLabel(ind_f, text="●",
+                                          font=("Segoe UI", 28), text_color=self.C_ERR)
+        self._status_dot.pack(side="left")
+        status_labels = ctk.CTkFrame(ind_f, fg_color="transparent")
+        status_labels.pack(side="left", padx=12)
+        self.lbl_status = ctk.CTkLabel(status_labels, text="OFFLINE",
+                                         font=("Courier New", 18, "bold"), text_color=self.C_ERR)
+        self.lbl_status.pack(anchor="w")
+        self.lbl_status_sub = ctk.CTkLabel(status_labels, text="Server not running",
+                                             font=("Segoe UI", 14), text_color=self.C_DIM)
+        self.lbl_status_sub.pack(anchor="w")
+ 
+        self.btn_start = ctk.CTkButton(
+            top_row, text="START", width=110, height=44,
+            font=("Courier New", 16, "bold"),
+            fg_color=self.C_ACCENT, text_color="#000", hover_color=self.C_ACCENT2,
+            corner_radius=6, command=self.toggle_server)
+        self.btn_start.pack(side="right")
+ 
+        # IP display
+        ip_f = ctk.CTkFrame(ctrl, fg_color="#111111", corner_radius=6)
+        ip_f.pack(fill="x", padx=20, pady=(0, 20))
+        ctk.CTkLabel(ip_f, text="ENDPOINT", font=("Courier New", 9, "bold"),
+                      text_color=self.C_DIM).pack(anchor="w", padx=12, pady=(8, 2))
+        self.ent_ip = ctk.CTkEntry(ip_f, font=("Courier New", 14),
+                                    fg_color="transparent", border_width=0,
+                                    text_color=self.C_ACCENT, state="readonly",
+                                    placeholder_text="ws://—.—.—.—:——", height=34)
+        self.ent_ip.pack(fill="x", padx=8, pady=(0, 10))
+ 
+        # ─ Quick features row ──────────────────────────────
+        self._section_label(scroll, "FEATURES")
+        feat = self._card(scroll)
+        feat.pack(fill="x", pady=(0, 16))
+ 
+        feat_inner = ctk.CTkFrame(feat, fg_color="transparent")
+        feat_inner.pack(fill="x", padx=16, pady=14)
+ 
+        self.btn_obs = self._feature_chip(feat_inner, "OBS Camera", "📹",
+                                           lambda: self.toggle_camera("OBS Virtual Camera"))
+        self.btn_obs.pack(side="left", padx=(0, 8))
+        self.btn_obs.configure(state="disabled")
+ 
+        self.btn_unity = self._feature_chip(feat_inner, "Unity Camera", "🎥",
+                                             lambda: self.toggle_camera("Unity Video Capture"))
+        self.btn_unity.pack(side="left", padx=(0, 8))
+        self.btn_unity.configure(state="disabled")
+ 
+        self.btn_audio = self._feature_chip(feat_inner, "Audio Stream", "🔊",
+                                             self.toggle_audio)
+        self.btn_audio.pack(side="left")
+        self.btn_audio.configure(state="disabled")
+ 
+        # ─ Activity log ────────────────────────────────────
+        log_header = ctk.CTkFrame(scroll, fg_color="transparent")
+        log_header.pack(fill="x", pady=(10, 4))
+        
+        # 2. Pack the section label to the left
+        ctk.CTkLabel(log_header, text="ACTIVITY LOG", 
+                     font=("Courier New", 10, "bold"), 
+                     text_color=self.C_DIM).pack(side="left", padx=4)
 
-        self.btn_nav_share = ctk.CTkButton(self.sidebar, text="Sharing", fg_color="transparent", border_width=2,
-                                           text_color=("gray10", "#DCE4EE"),
-                                           command=lambda: self.tabview.set("Sharing"))
-        self.btn_nav_share.pack(pady=10, padx=20, fill="x")
+        # 3. Add a slider to dynamically adjust the log box height
+        self.log_height_slider = ctk.CTkSlider(
+            log_header, from_=100, to=800, width=120, height=14,
+            button_color=self.C_ACCENT, button_hover_color=self.C_ACCENT2,
+            progress_color=self.C_ACCENT,
+            command=lambda val: self.log_box.configure(height=int(val))
+        )
+        self.log_height_slider.set(220) # Set default height
+        self.log_height_slider.pack(side="right", padx=10)
+        
+        ctk.CTkLabel(log_header, text="Window Height:", 
+                     font=("Segoe UI", 10), text_color=self.C_DIM).pack(side="right")
 
-        ctk.CTkLabel(self.sidebar, text=f"v{APP_VERSION}", text_color="gray").pack(side="bottom", pady=20)
+        # 4. Create the card and textbox (Now with green text!)
+        log_card = self._card(scroll)
+        log_card.pack(fill="both", expand=True, pady=(0, 4))
 
-        # 2. MAIN TABS
-        self.tabview = ctk.CTkTabview(self.root, fg_color="transparent")
-        self.tabview.grid(row=0, column=1, padx=20, pady=10, sticky="nsew")
-
-        self.tabview.add("Dashboard")
-        self.tabview.add("Camera")
-        self.tabview.add("Sharing")
-
-        self.build_dashboard(self.tabview.tab("Dashboard"))
-        self.build_camera(self.tabview.tab("Camera"))
-        self.build_sharing(self.tabview.tab("Sharing"))
-
-    def build_dashboard(self, parent):
-        # Server Status Card
-        card = ctk.CTkFrame(parent)
-        card.pack(fill="x", pady=10)
-
-        self.lbl_status = ctk.CTkLabel(card, text="🔴 Offline", font=("Segoe UI", 22, "bold"), text_color="#cf6679")
-        self.lbl_status.pack(pady=(20, 5))
-
-        self.ent_ip = ctk.CTkEntry(card, justify="center", placeholder_text="Waiting for start...", width=300,
-                                   font=("Consolas", 14), state="readonly")
-        self.ent_ip.pack(pady=5)
-
-        self.btn_start = ctk.CTkButton(card, text="START SERVER", font=("Segoe UI", 14, "bold"), height=45,
-                                       fg_color="#00e676", text_color="black", hover_color="#00c853",
-                                       command=self.toggle_server)
-        self.btn_start.pack(pady=20)
-
-        # Quick Actions
-        card_act = ctk.CTkFrame(parent, fg_color="transparent")
-        card_act.pack(fill="x", pady=5)
-
-        self.btn_tray = ctk.CTkButton(card_act, text="Minimize to Tray", command=self.minimize_to_tray,
-                                      fg_color="#2d2d2d")
-        self.btn_tray.pack(side="left", fill="x", expand=True, padx=(0, 5))
-
-        self.btn_settings = ctk.CTkButton(card_act, text="Settings", command=self.open_settings, fg_color="#2d2d2d")
-        self.btn_settings.pack(side="right", fill="x", expand=True, padx=(5, 0))
-
-        # Features Card
-        feat_frame = ctk.CTkFrame(parent)
-        feat_frame.pack(fill="x", pady=15)
-        ctk.CTkLabel(feat_frame, text="Active Features", font=("Segoe UI", 12, "bold"), text_color="gray").pack(pady=5)
-
-        row = ctk.CTkFrame(feat_frame, fg_color="transparent")
-        row.pack(pady=10)
-
-        self.btn_obs = ctk.CTkButton(row, text="OBS Camera", state="disabled",
-                                     command=lambda: self.toggle_camera("OBS Virtual Camera"))
-        self.btn_obs.pack(side="left", padx=5)
-
-        self.btn_unity = ctk.CTkButton(row, text="Unity Camera", state="disabled",
-                                       command=lambda: self.toggle_camera("Unity Video Capture"))
-        self.btn_unity.pack(side="left", padx=5)
-
-        self.btn_audio = ctk.CTkButton(row, text="Audio Stream", state="disabled", command=self.toggle_audio)
-        self.btn_audio.pack(side="left", padx=5)
-
-        # Logs
-        ctk.CTkLabel(parent, text="Activity Log", anchor="w").pack(fill="x")
-        self.log_box = ctk.CTkTextbox(parent, height=120, font=("Consolas", 12))
-        self.log_box.pack(fill="x", pady=5)
-
-    def build_camera(self, parent):
-        # Split: Left Controls | Right Preview
+        self.log_box = ctk.CTkTextbox(
+            log_card, font=("Courier New", 14),
+            fg_color="#0d0d0d", 
+            text_color=self.C_ACCENT, # 🟢 THIS MAKES THE TEXT GREEN
+            scrollbar_button_color="#1e1e1e",
+            scrollbar_button_hover_color=self.C_ACCENT,
+            height=220, corner_radius=8)
+        self.log_box.pack(fill="both", expand=True, padx=4, pady=4)
+ 
+    def _feature_chip(self, parent, label, icon, command):
+        """Updated toggle chip for feature shortcuts."""
+        return ctk.CTkButton(
+            parent, text=f"{icon}  {label}", height=42,
+            font=("Segoe UI", 14, "bold"), corner_radius=8,
+            fg_color="#000000", hover_color="#0a2914",
+            text_color=self.C_ACCENT, border_width=1.5,
+            border_color=self.C_ACCENT, command=command)
+ 
+    # ── Camera Studio ──────────────────────────────────────
+    def _build_camera(self, parent):
+        parent.grid_columnconfigure(0, weight=0)
         parent.grid_columnconfigure(1, weight=1)
         parent.grid_rowconfigure(0, weight=1)
-
-        left = ctk.CTkFrame(parent, width=220)
-        left.grid(row=0, column=0, sticky="nsew", padx=(0, 10))
-
-        right = ctk.CTkFrame(parent, fg_color="black")
-        right.grid(row=0, column=1, sticky="nsew")
-
-        # --- Controls ---
-        ctk.CTkLabel(left, text="Background", font=("Segoe UI", 14, "bold")).pack(pady=(10, 5))
+ 
+        # Left panel
+        left = ctk.CTkScrollableFrame(parent, width=220, fg_color=self.C_SURFACE,
+                                       corner_radius=0, border_width=0,
+                                       scrollbar_button_color="#1e1e1e",
+                                       scrollbar_button_hover_color=self.C_ACCENT)
+        left.grid(row=0, column=0, sticky="nsew")
+ 
+        # Page title in panel
+        ctk.CTkFrame(left, height=2, fg_color=self.C_BORDER).pack(fill="x")
+        ctk.CTkLabel(left, text="CAMERA STUDIO",
+                      font=("Courier New", 10, "bold"), text_color=self.C_DIM).pack(
+            anchor="w", padx=16, pady=(14, 10))
+ 
+        # Background section
+        bg_card = self._card(left)
+        bg_card.pack(fill="x", padx=10, pady=(0, 10))
+        ctk.CTkLabel(bg_card, text="BACKGROUND", font=("Courier New", 9, "bold"),
+                      text_color=self.C_DIM).pack(anchor="w", padx=14, pady=(10, 6))
+ 
         self.var_bg = ctk.StringVar(value="none")
-        ctk.CTkRadioButton(left, text="None", variable=self.var_bg, value="none",
-                           command=self.update_cam_settings).pack(anchor="w", padx=20, pady=2)
-        ctk.CTkRadioButton(left, text="Blur", variable=self.var_bg, value="blur",
-                           command=self.update_cam_settings).pack(anchor="w", padx=20, pady=2)
-        ctk.CTkRadioButton(left, text="Image", variable=self.var_bg, value="image",
-                           command=self.update_cam_settings).pack(anchor="w", padx=20, pady=2)
-        ctk.CTkButton(left, text="Select Image...", command=self.select_bg_image, height=24, fg_color="#333").pack(
-            pady=5)
-
-        ctk.CTkLabel(left, text="Adjustments", font=("Segoe UI", 14, "bold")).pack(pady=(15, 5))
+        for val, lbl in [("none", "None"), ("blur", "Blur"), ("image", "Custom Image")]:
+            ctk.CTkRadioButton(
+                bg_card, text=lbl, variable=self.var_bg, value=val,
+                font=("Segoe UI", 12), text_color=self.C_TEXT,
+                fg_color=self.C_ACCENT, hover_color=self.C_ACCENT2,
+                command=self.update_cam_settings).pack(anchor="w", padx=16, pady=3)
+ 
+        ctk.CTkButton(bg_card, text="Choose image…", height=30,
+                       font=("Segoe UI", 11), fg_color="#111",
+                       hover_color="#1e1e1e", text_color=self.C_TEXT2,
+                       border_width=1, border_color=self.C_BORDER,
+                       command=self.select_bg_image).pack(
+            fill="x", padx=14, pady=(6, 12))
+ 
+        # Adjustments section
+        adj_card = self._card(left)
+        adj_card.pack(fill="x", padx=10, pady=(0, 10))
+        ctk.CTkLabel(adj_card, text="ADJUSTMENTS", font=("Courier New", 9, "bold"),
+                      text_color=self.C_DIM).pack(anchor="w", padx=14, pady=(10, 6))
+ 
         self.var_mirror = ctk.BooleanVar(value=False)
-        ctk.CTkSwitch(left, text="Mirror Video", variable=self.var_mirror, command=self.update_cam_settings).pack(
-            anchor="w", padx=20, pady=5)
+        ctk.CTkSwitch(adj_card, text="Mirror", variable=self.var_mirror,
+                       font=("Segoe UI", 12), text_color=self.C_TEXT,
+                       button_color=self.C_ACCENT, button_hover_color=self.C_ACCENT2,
+                       progress_color=self.C_ACCENT,
+                       command=self.update_cam_settings).pack(anchor="w", padx=14, pady=4)
         self.var_flip = ctk.BooleanVar(value=False)
-        ctk.CTkSwitch(left, text="Flip Vertical", variable=self.var_flip, command=self.update_cam_settings).pack(
-            anchor="w", padx=20, pady=5)
-
-        ctk.CTkLabel(left, text="Brightness", font=("Segoe UI", 12)).pack(pady=(5, 0))
-        self.scale_bright = ctk.CTkSlider(left, from_=-100, to=100, command=lambda x: self.update_cam_settings())
+        ctk.CTkSwitch(adj_card, text="Flip Vertical", variable=self.var_flip,
+                       font=("Segoe UI", 12), text_color=self.C_TEXT,
+                       button_color=self.C_ACCENT, button_hover_color=self.C_ACCENT2,
+                       progress_color=self.C_ACCENT,
+                       command=self.update_cam_settings).pack(anchor="w", padx=14, pady=4)
+ 
+        ctk.CTkLabel(adj_card, text="Brightness", font=("Segoe UI", 11),
+                      text_color=self.C_TEXT2).pack(anchor="w", padx=14, pady=(6, 2))
+        self.scale_bright = ctk.CTkSlider(adj_card, from_=-100, to=100,
+                                           button_color=self.C_ACCENT,
+                                           button_hover_color=self.C_ACCENT2,
+                                           progress_color=self.C_ACCENT,
+                                           command=lambda x: self.update_cam_settings())
         self.scale_bright.set(0)
-        self.scale_bright.pack(fill="x", padx=20, pady=5)
-
-        ctk.CTkLabel(left, text="Resolution", font=("Segoe UI", 12)).pack(pady=(10, 5))
-        self.combo_res = ctk.CTkOptionMenu(left, values=["1280x720 (16:9)", "1920x1080 (16:9)", "800x600 (4:3)",
-                                                         "720x720 (1:1)"],
-                                           command=self.change_aspect_ratio)
-        self.combo_res.pack(padx=20)
-
-        # --- 👇 RESTORED OUTPUT BUTTONS HERE 👇 ---
-        ctk.CTkLabel(left, text="Output Control", font=("Segoe UI", 14, "bold")).pack(pady=(20, 5))
-
-        self.btn_cs_obs = ctk.CTkButton(left, text="Start OBS Camera", fg_color=["#3B8ED0", "#1F6AA5"],
-                                        command=lambda: self.toggle_camera("OBS Virtual Camera"))
-        self.btn_cs_obs.pack(padx=20, pady=5, fill="x")
-
-        self.btn_cs_unity = ctk.CTkButton(left, text="Start Unity Camera", fg_color=["#3B8ED0", "#1F6AA5"],
-                                          command=lambda: self.toggle_camera("Unity Video Capture"))
-        self.btn_cs_unity.pack(padx=20, pady=5, fill="x")
-        # ------------------------------------------
-
-        # --- Preview ---
-        self.lbl_preview = ctk.CTkLabel(right, text="Waiting for connection...", text_color="gray")
+        self.scale_bright.pack(fill="x", padx=14, pady=(0, 12))
+ 
+        # Resolution
+        res_card = self._card(left)
+        res_card.pack(fill="x", padx=10, pady=(0, 10))
+        ctk.CTkLabel(res_card, text="RESOLUTION", font=("Courier New", 9, "bold"),
+                      text_color=self.C_DIM).pack(anchor="w", padx=14, pady=(10, 6))
+        self.combo_res = ctk.CTkOptionMenu(
+            res_card,
+            values=["1280x720 (16:9)", "1920x1080 (16:9)", "800x600 (4:3)", "720x720 (1:1)"],
+            font=("Segoe UI", 12), fg_color="#111",
+            button_color="#1e1e1e", button_hover_color="#252525",
+            dropdown_fg_color="#141414", text_color=self.C_TEXT,
+            command=self.change_aspect_ratio)
+        self.combo_res.pack(fill="x", padx=14, pady=(0, 12))
+ 
+        # Output control
+        out_card = self._card(left)
+        out_card.pack(fill="x", padx=10, pady=(0, 12))
+        ctk.CTkLabel(out_card, text="OUTPUT", font=("Courier New", 9, "bold"),
+                      text_color=self.C_DIM).pack(anchor="w", padx=14, pady=(10, 6))
+ 
+        self.btn_cs_obs = ctk.CTkButton(
+            out_card, text="▶  OBS Virtual Camera", height=36,
+            font=("Segoe UI", 12), fg_color="#1a2a1f",
+            hover_color="#1f3325", text_color=self.C_ACCENT,
+            border_width=1, border_color="#2a3d2d",
+            command=lambda: self.toggle_camera("OBS Virtual Camera"))
+        self.btn_cs_obs.pack(fill="x", padx=14, pady=(0, 6))
+ 
+        self.btn_cs_unity = ctk.CTkButton(
+            out_card, text="▶  Unity Video Capture", height=36,
+            font=("Segoe UI", 12), fg_color="#1a2a1f",
+            hover_color="#1f3325", text_color=self.C_ACCENT,
+            border_width=1, border_color="#2a3d2d",
+            command=lambda: self.toggle_camera("Unity Video Capture"))
+        self.btn_cs_unity.pack(fill="x", padx=14, pady=(0, 12))
+ 
+        # Right — preview
+        right = ctk.CTkFrame(parent, fg_color="#080808", corner_radius=0)
+        right.grid(row=0, column=1, sticky="nsew")
+        right.grid_propagate(False)
+        right.grid_columnconfigure(0, weight=1)
+        right.grid_rowconfigure(0, weight=1)
+ 
+        self.lbl_preview = ctk.CTkLabel(
+            right, text="No signal\nWaiting for connection…",
+            font=("Courier New", 13), text_color="#333",
+            justify="center")
         self.lbl_preview.place(relx=0.5, rely=0.5, anchor="center")
-
-    def build_sharing(self, parent):
-        # Clipboard
-        card_clip = ctk.CTkFrame(parent)
-        card_clip.pack(fill="x", pady=10)
-        ctk.CTkLabel(card_clip, text="Clipboard Sync", font=("Segoe UI", 14, "bold"), text_color="#00e676").pack(
-            anchor="w", padx=15, pady=10)
-
-        self.txt_clip = ctk.CTkTextbox(card_clip, height=80)
-        self.txt_clip.pack(fill="x", padx=15, pady=5)
-
-        row = ctk.CTkFrame(card_clip, fg_color="transparent")
-        row.pack(fill="x", padx=10, pady=10)
-        ctk.CTkButton(row, text="Copy to PC", command=self.copy_to_pc).pack(side="left", expand=True, padx=5)
-        ctk.CTkButton(row, text="Send to Phone", command=self.send_text_to_phone, fg_color="#2d2d2d").pack(side="right",
-                                                                                                           expand=True,
-                                                                                                           padx=5)
-
-        # Files
-        card_file = ctk.CTkFrame(parent)
-        card_file.pack(fill="both", expand=True, pady=10)
-        ctk.CTkLabel(card_file, text="File Transfer", font=("Segoe UI", 14, "bold"), text_color="#00e676").pack(
-            anchor="w", padx=15, pady=10)
-
-        self.list_files = ctk.CTkTextbox(card_file)
-        self.list_files.pack(fill="both", expand=True, padx=15, pady=5)
-
-        row2 = ctk.CTkFrame(card_file, fg_color="transparent")
-        row2.pack(fill="x", padx=10, pady=10)
-        ctk.CTkButton(row2, text="Open Folder", command=self.open_folder).pack(side="left", expand=True, padx=5)
-        ctk.CTkButton(row2, text="Send File...", command=self.send_file_pick, fg_color="#2d2d2d").pack(side="right",
-                                                                                                       expand=True,
-                                                                                                       padx=5)
-
-    # --- LOGIC HANDLERS ---
+ 
+       
+        badge = ctk.CTkFrame(right, fg_color="#0d0d0d", corner_radius=6, width=120, height=28)
+        badge.place(x=12, y=12)
+        self._preview_badge = ctk.CTkLabel(badge, text="● LIVE", font=("Courier New", 10, "bold"),
+                                            text_color="#555")
+        self._preview_badge.pack(padx=10, pady=4)
+ 
+    # ── Sharing ────────────────────────────────────────────
+    def _build_sharing(self, parent):
+        scroll = ctk.CTkScrollableFrame(parent, fg_color=self.C_BG,
+                                          scrollbar_button_color="#1e1e1e",
+                                          scrollbar_button_hover_color=self.C_ACCENT)
+        scroll.grid(row=0, column=0, sticky="nsew", padx=24, pady=20)
+        scroll.grid_columnconfigure(0, weight=1)
+ 
+        ctk.CTkLabel(scroll, text="SHARING",
+                      font=("Courier New", 13, "bold"), text_color=self.C_DIM).pack(anchor="w")
+        ctk.CTkFrame(scroll, height=1, fg_color=self.C_BORDER).pack(fill="x", pady=(4, 16))
+ 
+        # ─ Clipboard ───────────────────────────────────────
+        self._section_label(scroll, "CLIPBOARD SYNC")
+        clip_card = self._card(scroll)
+        clip_card.pack(fill="x", pady=(0, 16))
+ 
+        self.txt_clip = ctk.CTkTextbox(
+            clip_card, height=90, font=("Courier New", 12),
+            fg_color="#0d0d0d", text_color=self.C_ACCENT,
+            scrollbar_button_color="#1e1e1e", corner_radius=6)
+        self.txt_clip.pack(fill="x", padx=14, pady=(14, 8))
+ 
+        btn_row = ctk.CTkFrame(clip_card, fg_color="transparent")
+        btn_row.pack(fill="x", padx=14, pady=(0, 14))
+        self._pill_btn(btn_row, "Copy to PC", self.copy_to_pc).pack(side="left", expand=True, fill="x", padx=(0, 6))
+        self._pill_btn(btn_row, "Send to Phone →", self.send_text_to_phone,
+                       accent=True).pack(side="right", expand=True, fill="x")
+ 
+        # ─ File transfer ───────────────────────────────────
+        self._section_label(scroll, "FILE TRANSFER")
+        file_card = self._card(scroll)
+        file_card.pack(fill="both", expand=True, pady=(0, 4))
+ 
+        self.list_files = ctk.CTkTextbox(
+            file_card, font=("Courier New", 11),
+            fg_color="#0d0d0d", text_color="#777",
+            scrollbar_button_color="#1e1e1e",
+            scrollbar_button_hover_color=self.C_ACCENT,
+            height=180, corner_radius=6)
+        self.list_files.pack(fill="both", expand=True, padx=14, pady=14)
+ 
+        btn_row2 = ctk.CTkFrame(file_card, fg_color="transparent")
+        btn_row2.pack(fill="x", padx=14, pady=(0, 14))
+        self._pill_btn(btn_row2, "Open Folder", self.open_folder).pack(
+            side="left", expand=True, fill="x", padx=(0, 6))
+        self._pill_btn(btn_row2, "Send File…", self.send_file_pick,
+                       accent=True).pack(side="right", expand=True, fill="x")
+ 
+    # ── server logic ───────────────────────────────────────
     def toggle_server(self):
         if not self.is_running:
-            self.btn_start.configure(text="STOP SERVER", fg_color="#cf6679", hover_color="#b00020")
-            self.lbl_status.configure(text="Starting...", text_color="orange")
+            self.btn_start.configure(text="STOP", fg_color=self.C_ERR, hover_color="#cc3333",
+                                      text_color="#fff")
+            self.lbl_status.configure(text="STARTING…", text_color=self.C_WARN)
+            self._status_dot.configure(text_color=self.C_WARN)
+            self.lbl_status_sub.configure(text="Initialising server…")
             threading.Thread(target=self.start_sequence, daemon=True).start()
         else:
             self.stop_server()
-
+ 
     def stop_server(self):
         if self.server: self.server.stop()
         self.is_running = False
-        self.btn_start.configure(text="START SERVER", fg_color="#00e676", hover_color="#00c853")
-        self.lbl_status.configure(text="🔴 Offline", text_color="#cf6679")
-        self.ent_ip.configure(state="normal");
-        self.ent_ip.delete(0, "end");
-        self.ent_ip.insert(0, "Not Running");
-        self.ent_ip.configure(state="readonly")
-
+        self.btn_start.configure(text="START", fg_color=self.C_ACCENT,
+                                  hover_color=self.C_ACCENT2, text_color="#000")
+        self.lbl_status.configure(text="OFFLINE", text_color=self.C_ERR)
+        self._status_dot.configure(text_color=self.C_ERR)
+        self.lbl_status_sub.configure(text="Server not running")
+        self._set_ip("")
         for btn in [self.btn_obs, self.btn_unity, self.btn_audio]:
-            btn.configure(state="disabled", fg_color=["#3B8ED0", "#1F6AA5"])
-
+            btn.configure(state="disabled", fg_color=self.C_CARD, text_color=self.C_TEXT2)
+        self._update_client_badge(0)
+ 
+    def _set_ip(self, val):
+        self.ent_ip.configure(state="normal")
+        self.ent_ip.delete(0, "end")
+        if val:
+            self.ent_ip.insert(0, f"ws://{val}")
+        self.ent_ip.configure(state="readonly")
+ 
     def start_sequence(self):
         try:
             if self.server: self.server.stop()
-            port = self.prefs.get("port", 8080);
+            port = self.prefs.get("port", 8080)
             gaming_mode = self.prefs.get("gaming_mode", True)
             self.server = UnifiedRemoteServer(port=port, gaming_mode=gaming_mode, update_queue=self.update_queue)
             self.server.start()
             for _ in range(20):
                 if self.server._loop and self.server._loop.is_running():
-                    ip = self.server.get_local_ip();
-                    self.update_queue.put(("server_ready", f"{ip}:{port}"));
+                    ip = self.server.get_local_ip()
+                    self.update_queue.put(("server_ready", f"{ip}:{port}"))
                     return
                 time.sleep(0.1)
-            raise Exception("Timeout")
+            raise Exception("Timeout waiting for server loop")
         except Exception as e:
-            self.update_queue.put(("error", str(e))); self.stop_server()
-
+            self.update_queue.put(("error", str(e)))
+            self.stop_server()
+ 
     def toggle_camera(self, device_name):
         if not self.server: return
         if self.server._vcam_running:
@@ -2218,139 +2694,172 @@ class ServerGUI:
         else:
             self.server.start_virtual_camera(device_name)
             self.root.after(100, lambda: self._update_cam_buttons(device_name))
-
+ 
     def _update_cam_buttons(self, active_device):
         is_running = self.server and self.server._vcam_running
         if is_running:
+            self._preview_badge.configure(text_color=self.C_ACCENT)
             if active_device == "OBS Virtual Camera":
-                self.btn_obs.configure(text="⏹ Stop OBS", fg_color="#cf6679", state="normal")
+                self.btn_cs_obs.configure(text="⏹  OBS Camera", fg_color="#2a1a1a",
+                                           border_color="#5a2a2a", text_color=self.C_ERR)
+                self.btn_cs_unity.configure(state="disabled", text_color=self.C_DIM)
+                self.btn_obs.configure(text="⏹ OBS Camera", fg_color="#2a1a1a", text_color=self.C_ERR)
                 self.btn_unity.configure(state="disabled")
             else:
-                self.btn_unity.configure(text="⏹ Stop Unity", fg_color="#cf6679", state="normal")
+                self.btn_cs_unity.configure(text="⏹  Unity Camera", fg_color="#2a1a1a",
+                                             border_color="#5a2a2a", text_color=self.C_ERR)
+                self.btn_cs_obs.configure(state="disabled", text_color=self.C_DIM)
+                self.btn_unity.configure(text="⏹ Unity Camera", fg_color="#2a1a1a", text_color=self.C_ERR)
                 self.btn_obs.configure(state="disabled")
         else:
-            self.btn_obs.configure(text="OBS Camera", fg_color=["#3B8ED0", "#1F6AA5"], state="normal")
-            self.btn_unity.configure(text="Unity Camera", fg_color=["#3B8ED0", "#1F6AA5"], state="normal")
-
+            self._preview_badge.configure(text_color="#333")
+            for b in [self.btn_cs_obs, self.btn_cs_unity]:
+                b.configure(state="normal", fg_color="#1a2a1f",
+                             border_color="#2a3d2d", text_color=self.C_ACCENT)
+            self.btn_cs_obs.configure(text="▶  OBS Virtual Camera")
+            self.btn_cs_unity.configure(text="▶  Unity Video Capture")
+            self.btn_obs.configure(text="📹  OBS Camera", fg_color=self.C_CARD,
+                                    text_color=self.C_TEXT2, state="normal")
+            self.btn_unity.configure(text="🎥  Unity Camera", fg_color=self.C_CARD,
+                                      text_color=self.C_TEXT2, state="normal")
+ 
     def toggle_audio(self):
+        if not self.server: return
         if not self.server._streaming_audio:
             self.server.start_audio_streaming()
-            self.btn_audio.configure(text="⏹ Stop Audio", fg_color="#cf6679")
+            self.btn_audio.configure(text="⏹ Audio Stream", fg_color="#2a1a1a", text_color=self.C_ERR)
         else:
             self.server.stop_audio_streaming()
-            self.btn_audio.configure(text="Audio Stream", fg_color=["#3B8ED0", "#1F6AA5"])
-
+            self.btn_audio.configure(text="🔊  Audio Stream", fg_color=self.C_CARD, text_color=self.C_TEXT2)
+ 
     def send_text_to_phone(self):
         text = self.txt_clip.get("1.0", "end").strip()
         if text and self.server: self.server.send_to_android("clipboard_text", text)
-
+ 
     def copy_to_pc(self):
         pyperclip.copy(self.txt_clip.get("1.0", "end").strip())
-
+ 
     def send_file_pick(self):
         paths = filedialog.askopenfilenames()
-        if paths and self.server: threading.Thread(target=self.process_multiple_files, args=(paths,),
-                                                   daemon=True).start()
-
+        if paths and self.server:
+            threading.Thread(target=self.process_multiple_files, args=(paths,), daemon=True).start()
+ 
     def process_multiple_files(self, paths):
-        for p in paths: self.server.send_file_to_phone_thread(p); time.sleep(0.5)
-
+        for p in paths:
+            self.server.send_file_to_phone_thread(p)
+            time.sleep(0.5)
+ 
     def open_folder(self):
         os.startfile(SAVE_DIR)
-
+ 
     def update_cam_settings(self):
         if self.server:
-            self.server.bg_mode = self.var_bg.get();
+            self.server.bg_mode = self.var_bg.get()
             self.server.is_mirrored = self.var_mirror.get()
-            self.server.is_flipped = self.var_flip.get();
+            self.server.is_flipped = self.var_flip.get()
             self.server.brightness_boost = int(self.scale_bright.get())
-
+ 
     def select_bg_image(self):
         path = filedialog.askopenfilename(filetypes=[("Images", "*.jpg *.png *.jpeg")])
         if path and self.server:
-            self.server.bg_image_path = path;
-            self.server.bg_image_cache = None;
-            self.var_bg.set("image");
+            self.server.bg_image_path = path
+            self.server.bg_image_cache = None
+            self.var_bg.set("image")
             self.update_cam_settings()
-
+ 
     def change_aspect_ratio(self, selection):
         if not self.server: return
         try:
             w, h = map(int, selection.split(" ")[0].split("x"))
-            self.server.target_w = w;
+            self.server.target_w = w
             self.server.target_h = h
             if self.server._vcam_running:
-                dev = self.server._vcam.device;
+                dev = self.server._vcam.device
                 self.server.stop_virtual_camera()
                 self.root.after(500, lambda: self.server.start_virtual_camera(dev))
-        except:
-            pass
-
+        except: pass
+ 
     def update_preview(self):
         if self.server and self.server.latest_preview_frame is not None:
             try:
                 frame = self.server.latest_preview_frame
                 img = Image.fromarray(frame)
-                ctk_img = ctk.CTkImage(light_image=img, dark_image=img, size=(frame.shape[1], frame.shape[0]))
+                pw = self.lbl_preview.winfo_width()
+                ph = self.lbl_preview.winfo_height()
+                if pw > 4 and ph > 4:
+                    ih, iw = frame.shape[:2]
+                    scale = min(pw / iw, ph / ih)
+                    nw, nh = int(iw * scale), int(ih * scale)
+                    img = img.resize((nw, nh), Image.LANCZOS)
+                ctk_img = ctk.CTkImage(light_image=img, dark_image=img,
+                                        size=(img.width, img.height))
                 self.lbl_preview.configure(image=ctk_img, text="")
-            except:
-                pass
+            except: pass
         self.root.after(33, self.update_preview)
-
+ 
+    def _update_client_badge(self, count):
+        self._client_count = count
+        if count == 0:
+            self.lbl_clients.configure(text="● 0 connected", text_color=self.C_DIM)
+        else:
+            self.lbl_clients.configure(text=f"● {count} connected", text_color=self.C_ACCENT)
+ 
     def process_queue(self):
         try:
             while True:
                 kind, data = self.update_queue.get_nowait()
-
+ 
                 if kind == "log":
                     self.log(data)
-
+ 
                 elif kind == "server_ready":
                     self.is_running = True
-                    self.lbl_status.configure(text="🟢 Online", text_color="#00e676")
-                    self.ent_ip.configure(state="normal");
-                    self.ent_ip.delete(0, "end");
-                    self.ent_ip.insert(0, f"ws://{data}");
-                    self.ent_ip.configure(state="readonly")
-                    self.btn_obs.configure(state="normal")
-                    self.btn_unity.configure(state="normal")
-                    self.btn_audio.configure(state="normal")
-
+                    self.lbl_status.configure(text="ONLINE", text_color=self.C_ACCENT)
+                    self._status_dot.configure(text_color=self.C_ACCENT)
+                    self.lbl_status_sub.configure(text="Accepting connections")
+                    self._set_ip(data)
+                    for btn in [self.btn_obs, self.btn_unity, self.btn_audio]:
+                        btn.configure(state="normal")
+ 
+                elif kind == "client_count":
+                    self._update_client_badge(data)
+ 
                 elif kind == "error":
-                    messagebox.showerror("Error", data)
+                    messagebox.showerror("Server Error", data)
                     self.stop_server()
-
+ 
                 elif kind == "clipboard":
                     self.txt_clip.delete("1.0", "end")
                     self.txt_clip.insert("end", data)
-
+                    self._nav_go("sharing")
+ 
                 elif kind == "file_received":
                     self.list_files.insert("end", f"📄 {os.path.basename(data)}\n")
-
-                # 👇👇👇 NEW: HANDLE AUDIO STATUS UPDATES 👇👇👇
+                    self.list_files.see("end")
+ 
                 elif kind == "audio_status":
-                    is_on = data  # True/False
-                    if is_on:
-                        self.btn_audio.configure(text="⏹ Stop Audio", fg_color="#cf6679")
+                    if data:
+                        self.btn_audio.configure(text="⏹ Audio Stream",
+                                                  fg_color="#2a1a1a", text_color=self.C_ERR)
                     else:
-                        self.btn_audio.configure(text="Start Audio Stream", fg_color=["#3B8ED0", "#1F6AA5"])
-
-                # 👇👇👇 NEW: HANDLE CAMERA (OBS/UNITY) UPDATES 👇👇👇
+                        self.btn_audio.configure(text="🔊  Audio Stream",
+                                                  fg_color=self.C_CARD, text_color=self.C_TEXT2)
+ 
                 elif kind == "camera_status":
-                    # data will be the device name (e.g. "OBS Virtual Camera") or None if stopped
                     self._update_cam_buttons(data)
-
+ 
         except queue.Empty:
             pass
         except Exception as e:
             print(f"Queue Error: {e}")
-
-        self.root.after(200, self.process_queue)
-
+ 
+        self.root.after(150, self.process_queue)
+ 
     def log(self, msg):
-        self.log_box.insert("end", f"> {msg}\n");
+        ts = time.strftime("%H:%M:%S")
+        self.log_box.insert("end", f"[{ts}]  {msg}\n")
         self.log_box.see("end")
-
+ 
     def on_closing(self):
         if self.is_running: self.stop_server()
         self.root.destroy()
@@ -2363,6 +2872,17 @@ if __name__ == "__main__":
     import multiprocessing
 
     multiprocessing.freeze_support()
+
+
+    if sys.platform == "win32":
+        try:
+            import ctypes
+            ctypes.windll.shcore.SetProcessDpiAwareness(1)
+        except Exception:
+            try:
+                ctypes.windll.user32.SetProcessDPIAware()
+            except Exception:
+                pass
 
     # Admin check (Keep existing logic)
     must_be_admin = False
