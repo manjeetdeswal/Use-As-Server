@@ -2036,4 +2036,3 @@ X-GNOME-Autostart-enabled=true
 if __name__ == "__main__":
     app = ServerGUI()
     app.root.mainloop()
-
