@@ -102,8 +102,13 @@ You can install the server using the compiled installers below or run it from th
     ```
     > **Note:** If RPM continues to block the installation due to system directory metadata conflicts, use the force flag:
     > `sudo rpm -ivh --force use-as-server-1.5-2.noarch.rpm`
+    >
+    > **Note:Convert deb to rpm:`-
+
+    > `sudo alien -r -c your_package.deb`
 
 *(Follow the same Linux Setup & Configuration steps listed in Option B for Camera, Mic, and Gamepad functionality).*
+
 ### 🍎 Option D: macOS Installation
 
 1.  Download the latest **`UseAs_Server_macOS.zip`** from the [**Releases Page**](https://github.com/manjeetdeswal/Use-As-Server/releases).
