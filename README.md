@@ -66,16 +66,20 @@ You can install the server using the compiled installers below or run it from th
 
 ### 🐧 Option B: Linux Installation (Debian/Ubuntu)
 
-1.  Download the latest **`use-as-server_1.0_all.deb`** from the [**Releases Page**](https://github.com/manjeetdeswal/Use-As-Server/releases).
-2.  Open a terminal in your download folder and run:
+1.  Download the latest **`.deb`** package from the [**Releases Page**](https://github.com/manjeetdeswal/Use-As-Server/releases).
+2.  **Remove the old version** (If upgrading, to prevent conflicts):
+    ```bash
+    sudo apt remove use-as-server
+    ```
+3.  **Install the new package** (and override directory warnings if they occur):
     ```bash
     sudo apt update
-    sudo apt install ./use-as-server_1.0_all.deb
+    sudo dpkg -i --force-overwrite ./use-as-server_1.5_all.deb
+    sudo apt --fix-broken install
     ```
-    (Restart is required for everything to work)
-    *(This automatically installs Python, FFmpeg, and required tools).*
+    *(This automatically installs Python, FFmpeg, and required tools. Restart is required for everything to work).*
 
-3.  **Linux Setup & Configuration:**
+4.  **Linux Setup & Configuration:**
 
     | Feature | Linux Setup Command |
     | :--- | :--- |
@@ -85,7 +89,22 @@ You can install the server using the compiled installers below or run it from th
 
 ---
 
-### 🍎 Option C: macOS Installation
+### 🎩 Option C: Linux Installation (Fedora/RHEL/CentOS)
+
+1.  Download the latest converted **`.rpm`** package.
+2.  **Remove the old version** (Crucial to avoid case-sensitivity or old file conflicts):
+    ```bash
+    sudo dnf remove Use-As-Server
+    ```
+3.  **Install the new package and override directory warnings** (converted packages often trigger `/usr` filesystem conflicts):
+    ```bash
+    sudo rpm -ivh --replacefiles use-as-server-1.5-2.noarch.rpm
+    ```
+    > **Note:** If RPM continues to block the installation due to system directory metadata conflicts, use the force flag:
+    > `sudo rpm -ivh --force use-as-server-1.5-2.noarch.rpm`
+
+*(Follow the same Linux Setup & Configuration steps listed in Option B for Camera, Mic, and Gamepad functionality).*
+### 🍎 Option D: macOS Installation
 
 1.  Download the latest **`UseAs_Server_macOS.zip`** from the [**Releases Page**](https://github.com/manjeetdeswal/Use-As-Server/releases).
 2.  Extract the ZIP and drag the **`UseAs Server.app`** into your **Applications** folder.
@@ -102,7 +121,7 @@ You can install the server using the compiled installers below or run it from th
 
 ---
 
-### 🐍 Option D: Run from Source (Advanced)
+### 🐍 Option E: Run from Source (Advanced)
 
 If you are a developer, you can run the raw Python script directly.
 
