@@ -9,6 +9,7 @@
             --primary: #00E676;       /* Android Green */
             --primary-dark: #00C853;
             --linux-color: #E95420;   /* Ubuntu Orange */
+            --fedora-color: #51A2DA;  /* Fedora Blue */
             --mac-color: #F5F5F7;     /* Mac Silver */
             --bg: #121212;            /* Dark Mode Background */
             --surface: #1E1E1E;       /* Card Background */
@@ -92,6 +93,18 @@
             box-shadow: 0 6px 20px rgba(233, 84, 32, 0.4);
         }
 
+        .btn-fedora {
+            background-color: var(--fedora-color);
+            color: #fff;
+            box-shadow: 0 4px 15px rgba(81, 162, 218, 0.3);
+        }
+
+        .btn-fedora:hover {
+            background-color: #3b8bc2;
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(81, 162, 218, 0.4);
+        }
+
         .btn-mac {
             background-color: var(--mac-color);
             color: #000;
@@ -133,10 +146,12 @@
 
         h2.linux-header { border-color: var(--linux-color); }
         h2.mac-header { border-color: var(--mac-color); }
+        h2.fedora-header { border-color: var(--fedora-color); }
 
         /* --- Tabs --- */
         .tab-buttons {
             display: flex;
+            flex-wrap: wrap;
             gap: 10px;
             background: rgba(255, 255, 255, 0.05);
             padding: 5px;
@@ -165,6 +180,7 @@
         .tab-btn.active[data-os="windows"] { background: #00A4EF; color: #fff; }
         .tab-btn.active[data-os="macos"] { background: var(--mac-color); color: #000; }
         .tab-btn.active[data-os="linux"] { background: var(--linux-color); color: #fff; }
+        .tab-btn.active[data-os="fedora"] { background: var(--fedora-color); color: #fff; }
 
         .tab-content {
             display: none;
@@ -216,7 +232,7 @@
             font-size: 0.9rem;
             color: var(--text-secondary);
             background: rgba(255, 255, 255, 0.05);
-            padding: 10px;
+            padding: 15px;
             border-radius: 8px;
             margin-top: 15px;
         }
@@ -293,7 +309,7 @@
         .tag-req { background: rgba(255, 171, 0, 0.15); color: var(--warning); border: 1px solid rgba(255, 171, 0, 0.3); }
         .tag-easy { background: rgba(0, 230, 118, 0.15); color: var(--primary); border: 1px solid rgba(0, 230, 118, 0.3); }
 
-        /* --- LINUX & MAC & CODE STYLES --- */
+        /* --- OS & CODE STYLES --- */
         .os-box {
             background: linear-gradient(145deg, #1E1E1E, #222);
             border: 1px solid #333;
@@ -303,6 +319,7 @@
         }
 
         .linux-box { border-left: 4px solid var(--linux-color); }
+        .fedora-box { border-left: 4px solid var(--fedora-color); }
         .mac-box { border-left: 4px solid var(--mac-color); }
 
         .terminal {
@@ -365,15 +382,19 @@
         <div class="btn-group">
             <div>
                 <a href="https://github.com/manjeetdeswal/Use-As-Server/releases/download/1.5/UseAs_Setup_v1.5.exe" class="btn btn-primary">Download for Windows</a>
-                <p style="margin-top: 5px; font-size: 0.8rem; color: #666;">v1.4 • .exe</p>
+                <p style="margin-top: 5px; font-size: 0.8rem; color: #666;">v1.5 • .exe</p>
             </div>
             <div>
                 <a href="https://github.com/manjeetdeswal/Use-As-Server/releases/download/1.4/Use_As_Mac.zip" class="btn btn-mac">Download for macOS</a>
                 <p style="margin-top: 5px; font-size: 0.8rem; color: #666;">v1.0 • .zip • Apple Silicon & Intel</p>
             </div>
             <div>
-                <a href="https://github.com/manjeetdeswal/Use-As-Server/releases/download/1.5/useas-build_1.5.deb" class="btn btn-linux">Download for Linux</a>
-                <p style="margin-top: 5px; font-size: 0.8rem; color: #666;">v1.0 • .deb • Debian/Ubuntu</p>
+                <a href="https://github.com/manjeetdeswal/Use-As-Server/releases/download/1.5/useas-build_1.5.deb" class="btn btn-linux">Download for Ubuntu</a>
+                <p style="margin-top: 5px; font-size: 0.8rem; color: #666;">v1.5 • .deb • Debian/Ubuntu</p>
+            </div>
+            <div>
+                <a href="https://github.com/manjeetdeswal/Use-As-Server/releases/download/1.5/use-as-server-1.5-2.noarch.rpm" class="btn btn-fedora">Download for Fedora</a>
+                <p style="margin-top: 5px; font-size: 0.8rem; color: #666;">v1.5 • .rpm • Fedora/RHEL</p>
             </div>
         </div>
     </header>
@@ -384,7 +405,8 @@
         <div class="tab-buttons">
             <button class="tab-btn active" data-os="windows" onclick="openTab('windows')">Windows</button>
             <button class="tab-btn" data-os="macos" onclick="openTab('macos')">macOS</button>
-            <button class="tab-btn" data-os="linux" onclick="openTab('linux')">Linux</button>
+            <button class="tab-btn" data-os="linux" onclick="openTab('linux')">Debian/Ubuntu</button>
+            <button class="tab-btn" data-os="fedora" onclick="openTab('fedora')">Fedora/RHEL</button>
         </div>
 
         <section id="windows" class="tab-content active">
@@ -437,9 +459,12 @@
         <section id="linux" class="tab-content">
             <div class="os-box linux-box">
                 <h3 style="color: var(--linux-color);">1. Install the Application</h3>
-                <p>Open your terminal in the folder where you downloaded the <code>.deb</code> file and run:</p>
+                <p>First, remove any old version to prevent conflicts:</p>
+                <div class="terminal">sudo apt remove use-as-server</div>
+                <p>Then, open your terminal in the folder where you downloaded the <code>.deb</code> file and install (overriding directory warnings if they occur):</p>
                 <div class="terminal">sudo apt update
-sudo apt install ./UseAs.linux.deb</div>
+sudo dpkg -i --force-overwrite ./useas-build_1.5.deb
+sudo apt --fix-broken install</div>
                 <p class="note">(Restart is required for everything to work properly) This will automatically install dependencies like <code>python3</code>, <code>xdotool</code>, and <code>ffmpeg</code>.</p>
             </div>
 
@@ -479,6 +504,60 @@ pavucontrol</div>
                 <p>To use the phone camera as a webcam on Linux, the kernel module must be loaded.</p>
                 <div class="terminal">sudo modprobe v4l2loopback exclusive_caps=1 card_label="UseAs Cam"</div>
                 <p class="note">If this command fails, install the headers: <code>sudo apt install v4l2loopback-dkms</code></p>
+            </div>
+        </section>
+
+        <section id="fedora" class="tab-content">
+            <div class="os-box fedora-box">
+                <h3 style="color: var(--fedora-color);">1. Install the Application</h3>
+                <p>Using the provided <code>.rpm</code> package from the downloads section above.</p>
+                
+                <div style="margin-top: 15px;">
+                    <strong>Step A: Remove the old version</strong>
+                    <p style="font-size:0.9rem; color:var(--text-secondary); margin-bottom:5px;">Crucial to avoid case-sensitivity or old file conflicts.</p>
+                    <div class="terminal">sudo dnf remove Use-As-Server</div>
+                </div>
+
+                <div style="margin-top: 15px;">
+                    <strong>Step B: Install new package (Override Directory Warnings)</strong>
+                    <p style="font-size:0.9rem; color:var(--text-secondary); margin-bottom:5px;">Converted packages often trigger filesystem metadata errors. Use this to bypass them:</p>
+                    <div class="terminal">sudo rpm -ivh --replacefiles use-as-server-1.5-2.noarch.rpm</div>
+                    <div class="note warning">
+                        <strong>Still failing?</strong> If RPM continues to block the installation due to system directory metadata conflicts, use the force flag:
+                        <br><code>sudo rpm -ivh --force use-as-server-1.5-2.noarch.rpm</code>
+                    </div>
+                </div>
+
+                <div class="note" style="margin-top: 25px;">
+                    <strong>Note for Developers:</strong> If an RPM is not provided in a future update and you need to compile it yourself from a Debian package, you can convert it manually using Alien:
+                    <div class="terminal" style="margin-top: 10px;">sudo dnf install epel-release alien
+sudo alien -r -c your_package.deb</div>
+                </div>
+            </div>
+
+            <div class="os-box fedora-box">
+                <h3 style="color: var(--fedora-color);">2. Audio Configuration (Manual Setup)</h3>
+                <p>Just like Ubuntu, Fedora requires <strong>PulseAudio Volume Control (pavucontrol)</strong> to manually route the virtual audio.</p>
+                
+                <div style="margin-top: 15px;">
+                    <strong>Step A: Install Control Tool</strong>
+                    <div class="terminal">sudo dnf install pavucontrol
+pavucontrol</div>
+                </div>
+                <div style="margin-top: 15px;">
+                    <strong>Step B: Route Audio</strong>
+                    <ol style="margin-left:20px; color:var(--text-secondary);">
+                        <li>Open the <strong>pavucontrol</strong> interface.</li>
+                        <li><strong>For Mic:</strong> Go to the "Recording" tab and set your target app (e.g., Discord) to listen to "UseAs_Mic".</li>
+                        <li><strong>For Speaker:</strong> Go to the "Playback" tab and set the Python app's output to your desired sink.</li>
+                    </ol>
+                </div>
+            </div>
+
+            <div class="os-box fedora-box">
+                <h3 style="color: var(--fedora-color);">3. Camera Setup (v4l2loopback)</h3>
+                <p>To use the phone camera as a webcam, ensure you have the `v4l2loopback` package installed via dnf, then load the kernel module:</p>
+                <div class="terminal">sudo modprobe v4l2loopback exclusive_caps=1 card_label="UseAs Cam"</div>
             </div>
         </section>
 
@@ -694,7 +773,7 @@ pavucontrol</div>
     </div>
 
     <footer>
-        <p>&copy; 2025 Use As. Built for Android, Windows, macOS & Linux.</p>
+        <p>&copy; 2026 Use As. Built for Android, Windows, macOS & Linux.</p>
     </footer>
 
     <script>
