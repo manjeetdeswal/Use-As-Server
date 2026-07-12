@@ -36,17 +36,19 @@ if sys.platform == "win32":
     import ctypes
     from ctypes import windll, wintypes
 # --- CONSTANTS ---
-APP_VERSION = "1.5"
+APP_VERSION = "1.6"
 GITHUB_REPO = "manjeetdeswal/Use-As-Server" 
 GITHUB_URL = f"https://github.com/{GITHUB_REPO}"
 
 SETTINGS_FILE = Path.home() / "Downloads" / "UseAs_Received" / "server_settings.json"
-
+# ============================================
+# SERVER CODE (async websockets running in a background thread)
+# ============================================
 
 COLORS = {
     "bg": "#1e1e1e",
     "fg": "#ffffff",
-    "accent": "#00e676",      
+    "accent": "#00e676",      # Android Green
     "accent_hover": "#00c853",
     "secondary": "#2d2d2d",
     "highlight": "#3d3d3d",
@@ -54,6 +56,15 @@ COLORS = {
     "text_dim": "#b0b0b0",
     "btn_disabled": "#424242"
 }
+
+def resource_path(relative_path):
+    """Get absolute path to resource, works for dev and for PyInstaller"""
+    try:
+        # PyInstaller creates a temp folder and stores path in _MEIPASS
+        base_path = sys._MEIPASS
+    except Exception:
+        base_path = os.path.abspath(".")
+    return os.path.join(base_path, relative_path)
 
 
 SAVE_DIR = Path.home() / "Downloads" / "UseAs_Received"
@@ -75,27 +86,37 @@ class DiscoveryServer(threading.Thread):
         self.running = True
 
     def get_broadcast_addresses(self):
-        """Find broadcast address for every interface."""
-        addresses = set()
+        """Find broadcast address for every interface, plus universal."""
+        # Enforce universal broadcast IPs automatically
+        addresses = {'<broadcast>', '255.255.255.255'}
         try:
-            addresses.add('<broadcast>')
             hostname = socket.gethostname()
             local_ips = socket.gethostbyname_ex(hostname)[2]
             for ip in local_ips:
-                parts = ip.split('.')
-                if len(parts) == 4:
-                    broadcast = f"{parts[0]}.{parts[1]}.{parts[2]}.255"
-                    addresses.add(broadcast)
-        except:
+                # Ignore loopback adapters
+                if not ip.startswith("127."):
+                    parts = ip.split('.')
+                    if len(parts) == 4:
+                        # Append the standard /24 subnet broadcast 
+                        broadcast = f"{parts[0]}.{parts[1]}.{parts[2]}.255"
+                        addresses.add(broadcast)
+        except Exception:
             pass
         return list(addresses)
 
     def run(self):
-        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        # Explicitly set IPPROTO_UDP for broader OS compatibility
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+        
+        # Prevent "Address already in use" zombie locks
+        try:
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        except AttributeError:
+            pass
+            
         sock.settimeout(0.2)
 
-        # BROADCAST FORMAT: "UNIFIED_REMOTE_SERVER:PORT"
         message = f"UNIFIED_REMOTE_SERVER:{self.port}".encode('utf-8')
         logging.info(f"Starting discovery broadcast for port {self.port}...")
 
@@ -105,7 +126,8 @@ class DiscoveryServer(threading.Thread):
                 try:
                     # We broadcast TO port 8888 (The phone listens on this port)
                     sock.sendto(message, (target, 8888))
-                except:
+                except OSError:
+                    # Silently ignore "Network is unreachable" for disconnected adapters
                     pass
             time.sleep(1)
 
@@ -128,7 +150,7 @@ class UnifiedRemoteServer:
 
         self.ack_event = threading.Event()
 
-        self.clients = set()
+        self.clients = {}
         self._loop = None
         self._ws_server = None
         self._thread = None
@@ -220,7 +242,7 @@ class UnifiedRemoteServer:
 
                 for client in disconnected:
                     if client in self.clients:
-                        self.clients.remove(client)
+                        del self.clients[client]
                         self._put("client_count", len(self.clients))
             except Exception as e:
                 pass
@@ -236,17 +258,24 @@ class UnifiedRemoteServer:
 
 
     def get_local_ip(self):
-        """Get local IP address (best-effort)."""
+        """Get local IP address with a robust offline fallback."""
         try:
+            # 1. Best effort: Try connecting to an external IP (requires internet)
             s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             s.connect(("8.8.8.8", 80))
             ip = s.getsockname()[0]
             s.close()
             return ip
         except Exception:
+            # 2. Fallback: Offline router/LAN environment
             try:
-                # Fallback for systems without external connection
-                return socket.gethostbyname(socket.gethostname())
+                hostname = socket.gethostname()
+                local_ips = socket.gethostbyname_ex(hostname)[2]
+                # Filter out loopback IPs and grab the first active LAN IP
+                valid_ips = [ip for ip in local_ips if not ip.startswith("127.")]
+                if valid_ips:
+                    return valid_ips[0]
+                return "127.0.0.1"
             except Exception:
                 return "127.0.0.1"
 
@@ -258,17 +287,65 @@ class UnifiedRemoteServer:
             pass
 
     def make_handler(self):
-        """Return an async handler that captures self."""
+        """Return a unified async handler that manages client state, routing, 
+        and virtual gamepads with full rumble support and anti-ghost clean-up.
+        """
+        import asyncio
+        import json
+        import threading
 
         async def handler(websocket):
-            import asyncio
-        
-            self.loop = asyncio.get_running_loop()
-            self.clients.add(websocket)
             remote_addr = f"{websocket.remote_address[0]}:{websocket.remote_address[1]}"
-            self._put("log", f"Client connected: {remote_addr}")
+            remote_ip = websocket.remote_address[0]
+            
+            # 1. Initialize Client tracking metadata
+            self.loop = asyncio.get_running_loop()
+            self.clients[websocket] = {"ip": remote_ip, "name": f"Unknown ({remote_ip})"}
+            self._put("client_connected", self.clients[websocket])
+            self._put("log", f"🔌 Client connected: {remote_addr}")
             self._put("client_count", len(self.clients))
+            
+            # --- SEND SERVER VERSION ---
+            async def send_version_delayed():
+                await asyncio.sleep(1.5)  # Wait 1.5s for Android to load the listener
+                try:
+                    version_msg = json.dumps({"type": "server_version", "payload": APP_VERSION})
+                    await websocket.send(version_msg)
+                except Exception:
+                    pass
+            
+            asyncio.create_task(send_version_delayed())
 
+            # 2. Initialize Virtual Gamepad with Rumble Support
+            try:
+                import vgamepad as vg
+                dev = vg.VX360Gamepad()
+                self.client_gamepads[websocket] = dev
+                websocket.last_rumble = -1.0 
+                
+                def rumble_callback(client, target, large_motor, small_motor, led_number, user_data):
+                    # Calculate intensity and round it to avoid micro-fluctuations
+                    intensity = max(large_motor, small_motor) / 255.0
+                    intensity = round(intensity, 2)
+                    
+                    # ONLY send a message if the intensity actually changed!
+                    if getattr(websocket, "last_rumble", -1.0) != intensity:
+                        websocket.last_rumble = intensity
+                        
+                        payload = json.dumps({"type": "rumble", "payload": str(intensity)})
+                        
+                        # ✅ TARGET ONLY THE SPECIFIC PHONE THAT OWNS THIS CONTROLLER
+                        if self.loop and self.loop.is_running():
+                            asyncio.run_coroutine_threadsafe(websocket.send(payload), self.loop)
+                            
+                # Attach the vibration callback to the virtual controller
+                dev.register_notification(callback_function=rumble_callback)
+                self._put("log", f"🎮 Virtual Xbox 360 Controller mounted for {remote_ip}")
+            except Exception as e:
+                self._put("log", f"❌ ViGEmBus Error (Is it installed?): {e}")
+                # Optional: Decide whether to return or continue if app functions without gamepad
+
+            # 3. Message Processing & Routing Loop
             try:
                 async for message in websocket:
                     try:
@@ -280,43 +357,64 @@ class UnifiedRemoteServer:
 
                         data = json.loads(message)
                         msg_type = data.get("type", "unknown")
-                        payload = data.get("payload", "")
+                        raw_payload = data.get("payload", "")
+
+                        # Smart Unwrap Payload
+                        payload = raw_payload
+                        if isinstance(raw_payload, str) and raw_payload.strip().startswith("{"):
+                            try:
+                                payload = json.loads(raw_payload)
+                            except Exception as e:
+                                self._put("log", f"⚠️ JSON Parse Error: {e}")
 
                         # --- ROUTING MESSAGES ---
-                        if msg_type == "video_frame":
+                        if msg_type == "device_info":
+                            name = payload.get("name", self.clients[websocket]["name"])
+                            self.clients[websocket]["name"] = name
+                            self._put("client_updated", self.clients[websocket])
+                            self._put("log", f"📱 Device Identified: {name}")
+
+                        elif msg_type == "theme_update":
+                            theme_name = payload.get("name", "Dark Carbon")
+                            self._put("theme_changed", theme_name)
+
+                        elif msg_type == "video_frame":
                             self._handle_video_frame(payload)
+
                         elif msg_type == "mouse_move":
                             self._handle_mouse_move(payload)
+
                         elif msg_type == "mouse_click":
                             self._handle_mouse_click(payload)
+
                         elif msg_type == "mouse_scroll":
                             self._handle_mouse_scroll(payload)
+
                         elif msg_type == "key_press":
                             self._handle_key_press(payload)
+
                         elif msg_type == "ack":
                             self.ack_event.set()
 
-                        # --- MICROPHONE HANDLING (NEW) ---
+                        # --- MICROPHONE HANDLING ---
                         elif msg_type == "mic_start":
                             try:
-                                self._mic_active = True  # <--- ENABLE FLAG
+                                self._mic_active = True
                                 new_rate = int(payload)
                                 self._put("log", f"🎤 Mic started at {new_rate}Hz")
 
-                                # Close old stream to apply new rate
                                 if hasattr(self, '_mic_stream') and self._mic_stream:
                                     try:
                                         self._mic_stream.close()
                                     except:
                                         pass
-                                    self._mic_stream = None
+                                self._mic_stream = None
                                 self._mic_rate = new_rate
                             except Exception as e:
                                 self._put("log", f"⚠️ Mic start error: {e}")
 
                         elif msg_type == "mic_stop":
-                            self._mic_active = False  # <--- DISABLE FLAG
-
+                            self._mic_active = False
                             if hasattr(self, '_mic_stream') and self._mic_stream:
                                 try:
                                     self._mic_stream.close()
@@ -327,6 +425,25 @@ class UnifiedRemoteServer:
 
                         elif msg_type == "audio_frame":
                             self._handle_audio_frame(payload)
+
+                        # --- SYSTEM CONTROL (Virtual Camera) ---
+                        elif msg_type == "system_control":
+                            try:
+                                control_data = json.loads(payload) if isinstance(payload, str) else payload
+                                action = control_data.get("action")
+                                
+                                if action == "start_vcam":
+                                    device_name = control_data.get("device")
+                                    self._put("log", f"📲 Mobile requested Auto-Start: {device_name}")
+                                    self.start_virtual_camera(device_name)
+                                    self._put("camera_status", device_name)
+                                    
+                                elif action == "stop_vcam":
+                                    self._put("log", "📲 Mobile requested Stop Virtual Cam")
+                                    self.stop_virtual_camera()
+                                    self._put("camera_status", None)
+                            except Exception as e:
+                                self._put("log", f"⚠️ System control error: {e}")
 
                         # --- PC AUDIO STREAMING ---
                         elif msg_type == "audio_control":
@@ -352,7 +469,7 @@ class UnifiedRemoteServer:
                                 self._put("audio_status", False)
 
                         elif msg_type == "gamepad_state":
-                            self._handle_gamepad_state(payload, websocket)
+                            self._handle_gamepad_state(raw_payload, websocket)
 
                         # --- CLIPBOARD & FILES ---
                         elif msg_type == "clipboard_text":
@@ -371,8 +488,6 @@ class UnifiedRemoteServer:
                                 pass
 
                         elif msg_type == "file_transfer":
-                            if isinstance(payload, str):
-                                payload = json.loads(payload)
                             self._handle_file_transfer(payload)
 
                         elif msg_type == "display_request":
@@ -384,22 +499,36 @@ class UnifiedRemoteServer:
                     except json.JSONDecodeError:
                         pass
                     except Exception as e:
-                        pass
+                        self._put("log", f"⚠️ Message Error: {e}")
 
             except websockets.ConnectionClosedOK:
                 pass
             except Exception as e:
                 self._put("log", f"⚠️ Handler error: {e}")
             finally:
+                # 4. Clean up Client Records
                 if websocket in self.clients:
-                    self.clients.remove(websocket)
-                if hasattr(self, 'client_gamepads') and websocket in self.client_gamepads:
+                    self._put("client_disconnected", self.clients[websocket])
+                    del self.clients[websocket]
+                    self._put("client_count", len(self.clients))
+                
+                # 5. --- ANTI-GHOST CONTROLLER FIX WITH VIBRATION CLEANUP ---
+                if websocket in self.client_gamepads:
                     try:
+                        orphan_dev = self.client_gamepads[websocket]
+                        
+                        # Break the callback reference to clear memory allocations
+                        orphan_dev.unregister_notification()
+                        
                         del self.client_gamepads[websocket]
-                    except:
-                        pass
-                self._put("log", f"❌ Client disconnected: {remote_addr}")
-                self._put("client_count", len(self.clients))
+                        
+                        # Unmount controller cleanly from ViGEmBus
+                        del orphan_dev 
+                        self._put("log", f"🎮 Virtual Gamepad cleanly unmounted for {remote_ip}")
+                    except Exception as e:
+                        self._put("log", f"⚠️ Error clearing gamepad: {e}")
+                        
+                self._put("log", f"🔌 Disconnected: {remote_ip}")
 
         return handler
 
@@ -557,7 +686,6 @@ class UnifiedRemoteServer:
 
     def _handle_video_frame(self, payload):
         try:
-            # ... (Parsing and Decoding - Keep existing code) ...
             if isinstance(payload, str):
                 try:
                     frame_data = json.loads(payload)
@@ -569,9 +697,8 @@ class UnifiedRemoteServer:
             b64_data = frame_data.get('data')
             if not b64_data: return
 
-            rotation = frame_data.get('rotation', 0)
-            is_front = frame_data.get('is_front', False)
-
+            # We don't need 'rotation' or 'is_front' anymore because the phone pre-rotates it!
+            
             jpeg_bytes = base64.b64decode(b64_data)
             nparr = np.frombuffer(jpeg_bytes, dtype=np.uint8)
             frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
@@ -588,26 +715,11 @@ class UnifiedRemoteServer:
                 new_w, new_h = int(w * scale), int(h * scale)
                 frame = cv2.resize(frame, (new_w, new_h), interpolation=cv2.INTER_LINEAR)
 
-            # ... (Rotation, Mirroring, Brightness logic - Keep existing code) ...
-
-            # 4. Rotate
-            if rotation == 90:
-                frame = cv2.rotate(frame, cv2.ROTATE_90_CLOCKWISE)
-            elif rotation == 270:
-                frame = cv2.rotate(frame, cv2.ROTATE_90_COUNTERCLOCKWISE)
-            elif rotation == 180:
-                frame = cv2.rotate(frame, cv2.ROTATE_180)
-
-            should_mirror = False
-            if is_front:
-                if rotation in [90, 270]:
-                    frame = cv2.flip(frame, 0)
-                else:
-                    should_mirror = True
-
-            if self.is_mirrored: should_mirror = not should_mirror
-            if should_mirror: frame = cv2.flip(frame, 1)
-            if self.is_flipped: frame = cv2.flip(frame, 0)
+            # --- MANUAL PC ADJUSTMENTS ONLY ---
+            if self.is_mirrored: 
+                frame = cv2.flip(frame, 1) # Horizontal UI Toggle
+            if self.is_flipped: 
+                frame = cv2.flip(frame, 0) # Vertical UI Toggle
 
             if self.brightness_boost != 0:
                 frame = cv2.convertScaleAbs(frame, alpha=1, beta=self.brightness_boost)
@@ -622,20 +734,14 @@ class UnifiedRemoteServer:
 
             self._last_frame = final_frame
 
+            # --- PREVIEW (FULL RESOLUTION) ---
             if self.preview_active:
-                # Calculate preview size preserving aspect ratio
-                # Max preview size: 640x360
-                max_w, max_h = 640, 360
-                h, w = final_frame.shape[:2]
-                scale = min(max_w / w, max_h / h)
-
-                new_w, new_h = int(w * scale), int(h * scale)
-                self.latest_preview_frame = cv2.resize(rgb_frame, (new_w, new_h))
+                self.latest_preview_frame = rgb_frame.copy()
 
             self._frame_count += 1
 
         except Exception as e:
-            pass
+            print(f"❌ Frame Drop Error: {e}")
 
     def _process_background(self, img):
         try:
@@ -897,30 +1003,50 @@ class UnifiedRemoteServer:
             pass
 
     def _handle_gamepad_state(self, payload, client_ws):
-        """Handle gamepad input using a dictionary to support multiplayer."""
+        """Handle gamepad input and haptic feedback (rumble)."""
         try:
             import json
-            state = json.loads(payload)
+            import asyncio
+            
+            # FIX: Only parse if it's a string
+            if isinstance(payload, str):
+                state = json.loads(payload)
+            else:
+                state = payload
 
             # Ensure dictionary exists
             if not hasattr(self, 'client_gamepads'):
                 self.client_gamepads = {}
 
-            # Check if this specific client already has a controller
             if client_ws not in self.client_gamepads:
                 try:
                     import vgamepad as vg
-                    # Create a NEW gamepad instance for THIS client
-                    self.client_gamepads[client_ws] = vg.VX360Gamepad()
-                    self._put("log", f"🎮 New Controller assigned to client")
+                    new_gamepad = vg.VX360Gamepad()
+                    self.client_gamepads[client_ws] = new_gamepad
+                    client_ws.last_rumble = -1.0 
+                    
+                    def rumble_callback(client, target, large_motor, small_motor, led_number, user_data):
+                        try:
+                            intensity = max(large_motor, small_motor) / 255.0
+                            intensity = round(intensity, 2)
+                            
+                            if getattr(client_ws, "last_rumble", -1.0) != intensity:
+                                client_ws.last_rumble = intensity
+                                payload_str = json.dumps({"type": "rumble", "payload": str(intensity)})
+                                
+                                # 2. FIX: NEVER call client_ws.send() directly here! 
+                                # Use the thread-safe broadcast queue to prevent ConcurrencyError disconnects.
+                                self._send_to_clients_threadsafe(payload_str)
+                        except Exception as e:
+                            pass 
+
+                    new_gamepad.register_notification(callback_function=rumble_callback)
+                    self._put("log", f"🎮 Virtual Xbox Controller mapped with Rumble Support!")
                 except Exception as e:
                     self._put("log", f"❌ Gamepad creation error: {e}")
                     return
 
-            # Get the specific gamepad for this client
             current_gamepad = self.client_gamepads[client_ws]
-
-            # --- Mapping Logic (Applied to 'current_gamepad') ---
             import vgamepad as vg
 
             button_map = {
@@ -933,7 +1059,6 @@ class UnifiedRemoteServer:
                 'view': vg.XUSB_BUTTON.XUSB_GAMEPAD_BACK,
                 'menu': vg.XUSB_BUTTON.XUSB_GAMEPAD_START,
                 'xbox': vg.XUSB_BUTTON.XUSB_GAMEPAD_GUIDE,
-                # Compatibility aliases
                 'cross': vg.XUSB_BUTTON.XUSB_GAMEPAD_A,
                 'circle': vg.XUSB_BUTTON.XUSB_GAMEPAD_B,
                 'square': vg.XUSB_BUTTON.XUSB_GAMEPAD_X,
@@ -943,18 +1068,14 @@ class UnifiedRemoteServer:
                 'share': vg.XUSB_BUTTON.XUSB_GAMEPAD_BACK,
                 'options': vg.XUSB_BUTTON.XUSB_GAMEPAD_START,
                 'ps': vg.XUSB_BUTTON.XUSB_GAMEPAD_GUIDE,
-                
-                # --- NEW BUTTONS ADDED HERE ---
-                'ls_btn': vg.XUSB_BUTTON.XUSB_GAMEPAD_LEFT_THUMB,  # Left Stick Click
-                'rs_btn': vg.XUSB_BUTTON.XUSB_GAMEPAD_RIGHT_THUMB, # Right Stick Click
-                'thumbl': vg.XUSB_BUTTON.XUSB_GAMEPAD_LEFT_THUMB,  # Alias
-                'thumbr': vg.XUSB_BUTTON.XUSB_GAMEPAD_RIGHT_THUMB  # Alias
+                'ls_btn': vg.XUSB_BUTTON.XUSB_GAMEPAD_LEFT_THUMB,  
+                'rs_btn': vg.XUSB_BUTTON.XUSB_GAMEPAD_RIGHT_THUMB, 
+                'thumbl': vg.XUSB_BUTTON.XUSB_GAMEPAD_LEFT_THUMB,  
+                'thumbr': vg.XUSB_BUTTON.XUSB_GAMEPAD_RIGHT_THUMB  
             }
 
             buttons = state.get('buttons', {})
-
             for button, pressed in buttons.items():
-                # D-PAD LOGIC
                 if button.startswith('dpad_'):
                     direction = button.replace('dpad_', '')
                     dpad_map = {
@@ -964,19 +1085,12 @@ class UnifiedRemoteServer:
                         'right': vg.XUSB_BUTTON.XUSB_GAMEPAD_DPAD_RIGHT
                     }
                     if direction in dpad_map:
-                        if pressed:
-                            current_gamepad.press_button(dpad_map[direction])
-                        else:
-                            current_gamepad.release_button(dpad_map[direction])
-                
-                # STANDARD BUTTON LOGIC
+                        if pressed: current_gamepad.press_button(dpad_map[direction])
+                        else: current_gamepad.release_button(dpad_map[direction])
                 elif button in button_map:
-                    if pressed:
-                        current_gamepad.press_button(button_map[button])
-                    else:
-                        current_gamepad.release_button(button_map[button])
+                    if pressed: current_gamepad.press_button(button_map[button])
+                    else: current_gamepad.release_button(button_map[button])
 
-            # Analog Sticks
             left_x = float(state.get('leftStickX', 0.0))
             left_y = float(state.get('leftStickY', 0.0))
             right_x = float(state.get('rightStickX', 0.0))
@@ -985,13 +1099,11 @@ class UnifiedRemoteServer:
             current_gamepad.left_joystick_float(x_value_float=left_x, y_value_float=-left_y)
             current_gamepad.right_joystick_float(x_value_float=right_x, y_value_float=-right_y)
 
-            # Triggers
             left_trigger = float(state.get('leftTrigger', 0.0))
             right_trigger = float(state.get('rightTrigger', 0.0))
 
             current_gamepad.left_trigger_float(value_float=left_trigger)
             current_gamepad.right_trigger_float(value_float=right_trigger)
-
             current_gamepad.update()
 
         except Exception as e:
@@ -1142,14 +1254,33 @@ class UnifiedRemoteServer:
                                     last_move_time = time.time()
                                 
                                 if time.time() - last_move_time < HIDE_TIMEOUT:
-                                    # Fix: Adjust absolute mouse coords to local monitor coords
                                     monitor = sct.monitors[target_indices[0] + 1]
                                     local_mx = mx - monitor["left"]
                                     local_my = my - monitor["top"]
                                     
+                                    # Ensure the base point is somewhat within the screen bounds
                                     if 0 <= local_mx < final_frame.shape[1] and 0 <= local_my < final_frame.shape[0]:
-                                        cv2.circle(final_frame, (local_mx, local_my), 8, (0, 0, 255), -1)
-                                        cv2.circle(final_frame, (local_mx, local_my), 9, (255, 255, 255), 1)
+                                        
+                                        # Define the polygon points for a classic mouse cursor arrow
+                                        cursor_pts = np.array([
+                                            [0, 0],     # Tip
+                                            [0, 16],    # Left bottom corner
+                                            [4, 12],    # Inner left
+                                            [7, 19],    # Tail bottom left
+                                            [10, 17],   # Tail bottom right
+                                            [7, 11],    # Inner right
+                                            [12, 11]    # Right corner
+                                        ], np.int32)
+                                        
+                                        # Shift the points to the current mouse position
+                                        pts = cursor_pts + [local_mx, local_my]
+                                        pts = pts.reshape((-1, 1, 2))
+                                        
+                                        # Draw White Fill
+                                        cv2.fillPoly(final_frame, [pts], (255, 255, 255))
+                                        # Draw Black Outline (LINE_AA makes the edges smooth)
+                                        cv2.polylines(final_frame, [pts], isClosed=True, color=(0, 0, 0), thickness=1, lineType=cv2.LINE_AA)
+                                        
                             except: pass
 
                         # 4. FIT TO SCREEN
@@ -1164,17 +1295,14 @@ class UnifiedRemoteServer:
                         # 5. ENCODE & SEND
                         success, buffer = cv2.imencode('.jpg', final_frame, encode_param)
                         if success:
-                            # Create a raw byte array. 
                             # Header byte 0x03 means "This is a Video Frame"
                             header = b'\x03'
                             video_bytes = header + buffer.tobytes()
                             
-                            # Send as binary, NOT json!
-                            # Ensure your server class has a way to send raw bytes.
                             if hasattr(self, '_send_bytes_to_clients_threadsafe'):
                                 self._send_bytes_to_clients_threadsafe(video_bytes)
                             else:
-                                # Fallback if you don't have a binary broadcast function yet
+                                import asyncio
                                 asyncio.run_coroutine_threadsafe(
                                     self._broadcast_bytes(video_bytes), self.loop
                                 )
@@ -1212,7 +1340,7 @@ class UnifiedRemoteServer:
             # Clean up disconnected clients
             for ws in dead_clients:
                 if ws in self.clients:
-                    self.clients.remove(ws)
+                    del self.clients[ws]
 
         # Safely schedule the broadcast on the main event loop
         if hasattr(self, 'loop') and self.loop.is_running():
@@ -1571,7 +1699,11 @@ class UnifiedRemoteServer:
             import ctypes
             import json
 
-            event = json.loads(payload)
+            if isinstance(payload, str):
+                event = json.loads(payload)
+            else:
+                event = payload
+
             key = event.get("key", "")
             modifiers = event.get("modifiers", [])
             action = event.get("action", "press")
@@ -1759,12 +1891,22 @@ class UnifiedRemoteServer:
 
     async def _shutdown_server(self, run_from_finally=False):
         """Coroutine to gracefully close connections & the server."""
+        
+        
+        
+        for ws, dev in list(self.client_gamepads.items()):
+            try:
+                dev.unregister_notification()
+            except:
+                pass
+        self.client_gamepads.clear()
         if self._ws_server is not None:
             try:
                 self._ws_server.close()
                 await self._ws_server.wait_closed()
             except Exception as e:
                 self._put("log", f"Error closing ws server: {e}")
+        
 
         # Close all connected clients
         clients = list(self.clients)
@@ -2031,8 +2173,11 @@ class ServerGUI:
         self.load_preferences()
  
         try:
-            if Path("icon.ico").exists(): self.root.iconbitmap("icon.ico")
-        except: pass
+            icon_path = resource_path("icon.ico")
+            if os.path.exists(icon_path):
+                self.root.iconbitmap(icon_path)
+        except:
+            pass
  
         self.update_queue = queue.Queue()
         self.server = None
@@ -2094,9 +2239,9 @@ class ServerGUI:
         import urllib.request
         import json
         import webbrowser
+        import re
         from tkinter import messagebox
 
-        # 👇 1. REMOVE 'self.' FROM GITHUB_REPO
         url = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
         
         try:
@@ -2108,14 +2253,23 @@ class ServerGUI:
                 data = json.loads(response.read().decode())
                 
                 remote_tag = data.get("tag_name", "0.0").strip().lower().lstrip('v')
-                
-                # 👇 2. USE 'APP_VERSION' INSTEAD OF 'self.CURRENT_VERSION'
                 current_tag = APP_VERSION.strip().lower().lstrip('v')
 
-                if float(remote_tag) > float(current_tag):
-                    # 👇 3. REMOVE 'self.' FROM GITHUB_REPO HERE TOO
+                # Helper to convert "1.10.1" -> (1, 10, 1)
+                def parse_version(v_str):
+                    parts = re.findall(r'\d+', v_str)
+                    return tuple(map(int, parts)) if parts else (0,)
+
+                try:
+                    remote_tuple = parse_version(remote_tag)
+                    current_tuple = parse_version(current_tag)
+                    is_newer = remote_tuple > current_tuple
+                except ValueError:
+                    # Fallback if tags have weird characters
+                    is_newer = remote_tag != current_tag
+
+                if is_newer:
                     html_url = data.get("html_url", f"https://github.com/{GITHUB_REPO}/releases")
-                    
                     self.root.after(0, lambda: self._show_update_dialog(remote_tag, html_url))
                 elif manual:
                     self.root.after(0, lambda: messagebox.showinfo("Up to Date", f"You are running the latest version (v{APP_VERSION})."))
@@ -2174,7 +2328,14 @@ class ServerGUI:
  
     def minimize_to_tray(self):
         self.root.withdraw()
-        image = Image.open("icon.ico") if Path("icon.ico").exists() else self.create_default_icon()
+        
+        # --- NEW CODE ---
+        icon_path = resource_path("icon.ico")
+        if os.path.exists(icon_path):
+            image = Image.open(icon_path)
+        else:
+            image = self.create_default_icon()
+            
         menu = (item('Restore', self.restore_from_tray, default=True),
                 item('Stop & Quit', self.quit_app))
         self.tray_icon = pystray.Icon("UseAsServer", image, "Use As Server", menu)
@@ -2578,7 +2739,8 @@ class ServerGUI:
             right, text="No signal\nWaiting for connection…",
             font=("Courier New", 13), text_color="#333",
             justify="center")
-        self.lbl_preview.place(relx=0.5, rely=0.5, anchor="center")
+        # Pack it so it physically expands to fill the entire black frame
+        self.lbl_preview.pack(fill="both", expand=True)
  
        
         badge = ctk.CTkFrame(right, fg_color="#0d0d0d", corner_radius=6, width=120, height=28)
@@ -2783,18 +2945,28 @@ class ServerGUI:
         if self.server and self.server.latest_preview_frame is not None:
             try:
                 frame = self.server.latest_preview_frame
-                img = Image.fromarray(frame)
+                
+                # Ensure the window is actually visible to prevent math errors
                 pw = self.lbl_preview.winfo_width()
                 ph = self.lbl_preview.winfo_height()
-                if pw > 4 and ph > 4:
+                
+                if pw > 10 and ph > 10:
                     ih, iw = frame.shape[:2]
                     scale = min(pw / iw, ph / ih)
                     nw, nh = int(iw * scale), int(ih * scale)
-                    img = img.resize((nw, nh), Image.LANCZOS)
-                ctk_img = ctk.CTkImage(light_image=img, dark_image=img,
-                                        size=(img.width, img.height))
-                self.lbl_preview.configure(image=ctk_img, text="")
-            except: pass
+                    
+                    if nw > 0 and nh > 0:
+                        img = Image.fromarray(frame)
+                        img = img.resize((nw, nh), Image.Resampling.LANCZOS)
+                        
+                        ctk_img = ctk.CTkImage(light_image=img, dark_image=img, size=(nw, nh))
+                        self.lbl_preview.configure(image=ctk_img, text="")
+                        
+                        # 🟢 CRITICAL: Prevent Python's garbage collector from deleting the frame
+                        self.lbl_preview.image = ctk_img 
+            except Exception as e:
+                print(f"Preview Drawing Error: {e}")
+                
         self.root.after(33, self.update_preview)
  
     def _update_client_badge(self, count):
