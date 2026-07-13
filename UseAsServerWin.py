@@ -369,14 +369,15 @@ class UnifiedRemoteServer:
 
                         # --- ROUTING MESSAGES ---
                         if msg_type == "device_info":
-                            name = payload.get("name", self.clients[websocket]["name"])
+                            # Handle both dictionary and raw string payloads
+                            if isinstance(payload, dict):
+                                name = payload.get("name", self.clients[websocket]["name"])
+                            else:
+                                name = str(payload) if payload else self.clients[websocket]["name"]
+                                
                             self.clients[websocket]["name"] = name
-                            self._put("client_updated", self.clients[websocket])
-                            self._put("log", f"📱 Device Identified: {name}")
 
-                        elif msg_type == "theme_update":
-                            theme_name = payload.get("name", "Dark Carbon")
-                            self._put("theme_changed", theme_name)
+                        
 
                         elif msg_type == "video_frame":
                             self._handle_video_frame(payload)
@@ -400,7 +401,14 @@ class UnifiedRemoteServer:
                         elif msg_type == "mic_start":
                             try:
                                 self._mic_active = True
-                                new_rate = int(payload)
+                                
+                                # Safely extract the rate whether it's a dict, string, or int
+                                new_rate = 48000 # default fallback
+                                if isinstance(payload, dict):
+                                    new_rate = int(payload.get("rate", 48000))
+                                elif str(payload).isdigit():
+                                    new_rate = int(payload)
+                                    
                                 self._put("log", f"🎤 Mic started at {new_rate}Hz")
 
                                 if hasattr(self, '_mic_stream') and self._mic_stream:
@@ -410,6 +418,7 @@ class UnifiedRemoteServer:
                                         pass
                                 self._mic_stream = None
                                 self._mic_rate = new_rate
+                                
                             except Exception as e:
                                 self._put("log", f"⚠️ Mic start error: {e}")
 
@@ -474,18 +483,39 @@ class UnifiedRemoteServer:
                         # --- CLIPBOARD & FILES ---
                         elif msg_type == "clipboard_text":
                             try:
-                                if isinstance(payload, str) and payload.startswith('{'):
-                                    inner = json.loads(payload)
-                                    text = inner.get("text", "")
-                                else:
-                                    text = str(payload)
+                                text = ""
+                                
+                                # 1. If the smart unwrapper already made it a dictionary
+                                if isinstance(payload, dict):
+                                    text = payload.get("text", "")
+                                    
+                                # 2. If it's a string, we need to extract it
+                                elif isinstance(payload, str):
+                                    if payload.strip().startswith('{'):
+                                        try:
+                                            # Try strict JSON first
+                                            inner = json.loads(payload)
+                                            text = inner.get("text", "")
+                                        except json.JSONDecodeError:
+                                            # Fallback: Fix single quotes from Android and try again
+                                            try:
+                                                fixed_payload = payload.replace("'", '"')
+                                                inner = json.loads(fixed_payload)
+                                                text = inner.get("text", "")
+                                            except:
+                                                # Last resort fallback
+                                                text = payload 
+                                    else:
+                                        # It was just normal text all along
+                                        text = payload
+
                                 if text:
                                     import pyperclip
                                     pyperclip.copy(text)
                                     self._put("clipboard", text)
                                     self._put("log", "📋 Text copied from phone")
-                            except:
-                                pass
+                            except Exception as e:
+                                self._put("log", f"⚠️ Clipboard error: {e}")
 
                         elif msg_type == "file_transfer":
                             self._handle_file_transfer(payload)
@@ -615,8 +645,10 @@ class UnifiedRemoteServer:
 
     def _handle_file_transfer(self, data):
         try:
-            # 1. Debug: Check if we got data at all
-            # print("DEBUG: Received file packet")
+            # Force string into dict if it bypassed the smart unwrapper
+            if isinstance(data, str):
+                import json
+                data = json.loads(data)
 
             filename = data.get("filename")
             if not filename:
@@ -953,6 +985,8 @@ class UnifiedRemoteServer:
             import pyaudio
 
             # 1. Decode Audio
+            if not isinstance(payload, (str, bytes)):
+                return
             audio_bytes = base64.b64decode(payload)
 
             # 2. Initialize Audio System (One time)
@@ -985,12 +1019,14 @@ class UnifiedRemoteServer:
 
                 if target_device_index:
                     self._put("log", f"🎤 Routing Phone Mic to: {device_name}")
+                else:
+                    self._put("log", f"🎤 Routing Phone Mic to: System Default Speakers")
 
-                # Open Stream with the DYNAMIC rate
+                # Open Stream
                 self._mic_stream = self._mic_player.open(
                     format=pyaudio.paInt16,
-                    channels=1,  # Mono (Standard for Mic)
-                    rate=self._mic_rate,  # <--- USES VARIABLE FROM mic_start
+                    channels=1,  # Mono
+                    rate=self._mic_rate,  # 16000Hz from your log
                     output=True,
                     output_device_index=target_device_index
                 )
@@ -999,8 +1035,13 @@ class UnifiedRemoteServer:
             self._mic_stream.write(audio_bytes)
 
         except Exception as e:
-            # self._put("log", f"❌ Mic Playback Error: {e}")
-            pass
+            # We use a flag so it doesn't spam the log 30 times a second
+            if not getattr(self, "_logged_mic_err", False):
+                self._put("log", f"❌ Mic Playback Error: {e}")
+                self._logged_mic_err = True
+            
+            # Reset stream to try opening it again
+            self._mic_stream = None
 
     def _handle_gamepad_state(self, payload, client_ws):
         """Handle gamepad input and haptic feedback (rumble)."""
@@ -1113,9 +1154,9 @@ class UnifiedRemoteServer:
         """Handle display streaming request."""
         try:
             import json
-            request = json.loads(payload)
+            # Safely handle both pre-parsed dicts and raw strings
+            request = json.loads(payload) if isinstance(payload, str) else payload
             action = request.get('action')
-            self._put("log", f"🖥️ Display request: {action}")
 
             if action in ['start_display', 'change_resolution']:
                 self._display_width = int(request.get('width', 1280))
@@ -1820,7 +1861,7 @@ class UnifiedRemoteServer:
     def _handle_gamepad(self, payload):
         """Handle gamepad input (map to keyboard for now)."""
         try:
-            state = json.loads(payload)
+            state = json.loads(payload) if isinstance(payload, str) else payload
             buttons = state.get("buttons", {})
             left_stick_x = state.get("leftStickX", 0)
             left_stick_y = state.get("leftStickY", 0)
