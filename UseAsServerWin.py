@@ -30,13 +30,14 @@ import pystray                   # pip install pystray
 from pystray import MenuItem as item
 import numpy as np
 from PIL import Image, ImageDraw, ImageTk
+import psutil 
 
 if sys.platform == "win32":
     import win32api
     import ctypes
     from ctypes import windll, wintypes
 # --- CONSTANTS ---
-APP_VERSION = "1.6"
+APP_VERSION = "1.62"
 GITHUB_REPO = "manjeetdeswal/Use-As-Server" 
 GITHUB_URL = f"https://github.com/{GITHUB_REPO}"
 
@@ -76,69 +77,247 @@ try:
 except Exception as e:
     print(f"❌ Error creating folder: {e}")
 
-
+def ensure_firewall_rule():
+    if sys.platform != "win32":
+        return
+    try:
+        exe_path = sys.executable if getattr(sys, 'frozen', False) else __file__
+        # TCP rule (main WebSocket)
+        subprocess.run([
+            "netsh", "advfirewall", "firewall", "add", "rule",
+            "name=UseAsServer_TCP", "dir=in", "action=allow",
+            f"program={exe_path}", "enable=yes", "profile=any", "protocol=TCP"
+        ], capture_output=True, timeout=5)
+        # UDP rule (discovery + mouse)
+        subprocess.run([
+            "netsh", "advfirewall", "firewall", "add", "rule",
+            "name=UseAsServer_UDP", "dir=in", "action=allow",
+            f"program={exe_path}", "enable=yes", "profile=any", "protocol=UDP"
+        ], capture_output=True, timeout=5)
+    except Exception as e:
+        print(f"Firewall rule error: {e}")
 
 
 class DiscoveryServer(threading.Thread):
-    def __init__(self, port=8080):
+    def __init__(self, port=8080, update_queue=None):
         super().__init__()
-        self.port = port  # This is the TCP port the phone should connect to
+        self.port = port
         self.running = True
+        self.update_queue = update_queue
+        self.current_ips = set()
+        self.sock = None
 
-    def get_broadcast_addresses(self):
-        """Find broadcast address for every interface, plus universal."""
-        # Enforce universal broadcast IPs automatically
-        addresses = {'<broadcast>', '255.255.255.255'}
+    def get_active_ips(self):
+        """Return every active, non-loopback IPv4 interface with its computed broadcast address."""
+        results = []
         try:
-            hostname = socket.gethostname()
-            local_ips = socket.gethostbyname_ex(hostname)[2]
-            for ip in local_ips:
-                # Ignore loopback adapters
-                if not ip.startswith("127."):
-                    parts = ip.split('.')
-                    if len(parts) == 4:
-                        # Append the standard /24 subnet broadcast 
-                        broadcast = f"{parts[0]}.{parts[1]}.{parts[2]}.255"
-                        addresses.add(broadcast)
+            stats = psutil.net_if_stats()
+            for iface, addrs in psutil.net_if_addrs().items():
+                if iface in stats and not stats[iface].isup:
+                    continue
+                for addr in addrs:
+                    if addr.family == socket.AF_INET:
+                        ip = addr.address
+                        if ip.startswith("127.") or ip.startswith("169.254."):
+                            continue
+                        if self._is_virtual_adapter(iface, ip):   # 👈 CHANGED: now passes ip too
+                            continue
+                        netmask = addr.netmask or "255.255.255.0"
+                        results.append({
+                            "ip": ip,
+                            "broadcast": self._calc_broadcast(ip, netmask),
+                            "iface": iface,
+                            "label": self._label_interface(iface, ip),
+                        })
+        except Exception as e:
+            if self.update_queue:
+                self.update_queue.put(("log", f"⚠️ IP Scan Warning: {e}"))
+            # Fallback to old method so it never totally breaks
+            try:
+                hostname = socket.gethostname()
+                for ip in socket.gethostbyname_ex(hostname)[2]:
+                    if not ip.startswith("127.") and not ip.startswith("169.254."):
+                        results.append({
+                            "ip": ip,
+                            "broadcast": ".".join(ip.split(".")[:3]) + ".255",
+                            "iface": "unknown",
+                            "label": self._label_interface("unknown", ip),
+                        })
+            except Exception:
+                pass
+        return results
+        
+        
+    def _create_socket(self):
+        """Creates a fresh UDP broadcast socket with crash recovery."""
+        for attempt in range(3):
+            try:
+                sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
+                sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+                try:
+                    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                except AttributeError:
+                    pass
+                # Set a tight timeout so unreachable interfaces don't hang the loop
+                sock.settimeout(0.1)
+                return sock
+            except OSError:
+                time.sleep(0.2)  # Give Windows time to release the zombie port
+        raise Exception("Failed to bind UDP discovery socket after 3 attempts.")
+    
+    
+    def _get_primary_ip(self):
+        """Ask the OS routing table which interface it would actually use — most reliable signal."""
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.connect(("8.8.8.8", 80))
+            ip = s.getsockname()[0]
+            s.close()
+            return ip
         except Exception:
-            pass
-        return list(addresses)
+            return None
+
+    @staticmethod
+    def _calc_broadcast(ip, netmask):
+        try:
+            ip_p = [int(x) for x in ip.split(".")]
+            m_p = [int(x) for x in netmask.split(".")]
+            return ".".join(str(ip_p[i] | (255 - m_p[i])) for i in range(4))
+        except Exception:
+            return ".".join(ip.split(".")[:3]) + ".255"
+
+    @staticmethod
+    def _is_virtual_adapter(iface_name, ip=None):
+        """Detect adapters that aren't real physical network paths."""
+        name = iface_name.lower()
+        virtual_markers = [
+            "virtualbox", "vmware", "hyper-v", "vethernet",
+            "loopback", "docker", "wsl", "tap-", "tap0",
+            "npcap", "bluetooth", "vpn", "tailscale", "zerotier",
+            "virtual"
+        ]
+        if any(marker in name for marker in virtual_markers):
+            return True
+
+        # Fallback: block by known virtual-adapter IP ranges,
+        # since Windows often renames these to generic "Ethernet N"
+        if ip:
+            virtual_ip_prefixes = [
+                "192.168.56.",   # VirtualBox Host-Only default
+                "192.168.99.",   # Docker Toolbox / legacy VirtualBox
+                "172.17.",       # Docker default bridge
+                "172.18.", "172.19.", "172.20.",  # Docker/other bridges
+                "10.211.55.",    # Parallels
+                "169.254.",      # already excluded elsewhere, but just in case
+            ]
+            if any(ip.startswith(p) for p in virtual_ip_prefixes):
+                return True
+
+        return False
+
+    @staticmethod
+    def _label_interface(iface, ip):
+        name = iface.lower()
+        if ip.startswith("192.168.42."): return "USB Tethering"
+        if ip.startswith("192.168.43."): return "Mobile Hotspot"
+        # Check wifi FIRST and broaden keywords, since "ethernet" can
+        # appear inside some wifi adapter friendly names too
+        if any(k in name for k in ["wi-fi", "wifi", "wlan", "wireless", "802.11"]):
+            return "Wi-Fi"
+        if any(k in name for k in ["usb", "rndis"]):
+            return "USB Tethering"
+        if any(k in name for k in ["ethernet", "eth", "local area connection"]):
+            return "Ethernet / LAN"
+        return "Network"
 
     def run(self):
-        # Explicitly set IPPROTO_UDP for broader OS compatibility
-        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
-        sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
-        
-        # Prevent "Address already in use" zombie locks
         try:
-            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        except AttributeError:
-            pass
-            
-        sock.settimeout(0.2)
+            self.sock = self._create_socket()
+        except Exception as e:
+            if self.update_queue:
+                self.update_queue.put(("log", f"❌ Discovery Fatal: {e}"))
+            return
 
         message = f"UNIFIED_REMOTE_SERVER:{self.port}".encode('utf-8')
-        logging.info(f"Starting discovery broadcast for port {self.port}...")
+
+        primary_ip = self._get_primary_ip()
+        interfaces = self.get_active_ips()
+        for i in interfaces:
+            if i["ip"] == primary_ip:
+                i["label"] = f"{i['label']} ★"
+        self.current_ips = {i["ip"] for i in interfaces}
+
+        if self.update_queue:
+            self.update_queue.put(("log", f"📡 Broadcasting discovery on port {self.port}..."))
+            self.update_queue.put(("update_endpoints",
+                [{"ip": i["ip"], "port": self.port, "label": i["label"]} for i in interfaces]))
+
+        scan_counter = 0
 
         while self.running:
-            targets = self.get_broadcast_addresses()
+            scan_counter += 1
+
+            # Only re-scan interfaces every 3 ticks (~3s) — psutil calls are
+            # relatively expensive and networks rarely change every second.
+            # We still broadcast every second below using the last known list.
+            if scan_counter % 3 == 0:
+                primary_ip = self._get_primary_ip()
+                fresh_interfaces = self.get_active_ips()
+                for i in fresh_interfaces:
+                    if i["ip"] == primary_ip:
+                        i["label"] = f"{i['label']} ★"
+                new_ips = {i["ip"] for i in fresh_interfaces}
+
+                if new_ips != self.current_ips:
+                    if self.update_queue:
+                        self.update_queue.put(("log", "🔄 Network change detected! Rerouting broadcast..."))
+                        self.update_queue.put(("update_endpoints",
+                            [{"ip": i["ip"], "port": self.port, "label": i["label"]} for i in fresh_interfaces]))
+                    self.current_ips = new_ips
+                    try:
+                        if self.sock: self.sock.close()
+                    except: pass
+                    try:
+                        self.sock = self._create_socket()
+                    except Exception as e:
+                        if self.update_queue:
+                            self.update_queue.put(("log", f"❌ Socket Rebind Failed: {e}"))
+                        time.sleep(1)
+                        continue
+
+                interfaces = fresh_interfaces  # keep for broadcast targets below
+
+            # Broadcast to EACH interface's real broadcast address, not a guessed /24
+            targets = {i["broadcast"] for i in interfaces}
+            targets.add('255.255.255.255')
+
+            dead = False
             for target in targets:
                 try:
-                    # We broadcast TO port 8888 (The phone listens on this port)
-                    sock.sendto(message, (target, 8888))
-                except OSError:
-                    # Silently ignore "Network is unreachable" for disconnected adapters
+                    if self.sock:
+                        self.sock.sendto(message, (target, 8888))
+                except OSError as e:
+                    if getattr(e, 'winerror', 0) in (10051, 10065) or e.errno in (101, 113):
+                        dead = True
+                except Exception:
                     pass
+
+            if dead:
+                self.current_ips.clear()
+                scan_counter = 0  # force a re-scan on the very next tick
+
             time.sleep(1)
 
-        sock.close()
+        if self.sock:
+            try: self.sock.close()
+            except: pass
 
     def stop(self):
         self.running = False
 
 
 class UnifiedRemoteServer:
-    def __init__(self, host="0.0.0.0", port=8080, gaming_mode=True, update_queue: queue.Queue = None):
+    def __init__(self, host="0.0.0.0", port=8080, gaming_mode=True, password="", require_password=False, update_queue: queue.Queue = None):
         import threading
         self.sending_lock = threading.Lock()
 
@@ -149,6 +328,11 @@ class UnifiedRemoteServer:
         self.port = port  # Main TCP Port
 
         self.ack_event = threading.Event()
+        # --- AUTHENTICATION ---
+        self.pairing_password = password or ""
+        self.require_password = bool(require_password) and bool(self.pairing_password)
+        self._authenticated_clients = set()
+        self._auth_attempts = {}
 
         self.clients = {}
         self._loop = None
@@ -158,7 +342,7 @@ class UnifiedRemoteServer:
         self._stop_event = threading.Event()
 
         # 1. START DISCOVERY (Broadcasts the TCP port)
-        self.discovery = DiscoveryServer(port=self.port)
+        self.discovery = DiscoveryServer(port=self.port, update_queue=self.update_queue)
         self.discovery.start()
 
         # 2. START UDP MOUSE (Listens on TCP Port + 1)
@@ -304,7 +488,30 @@ class UnifiedRemoteServer:
             self._put("client_connected", self.clients[websocket])
             self._put("log", f"🔌 Client connected: {remote_addr}")
             self._put("client_count", len(self.clients))
+            self._put("log", f"🔐 [handler] this server instance require_password={self.require_password}")
+
             
+            if not self.require_password:
+                self._authenticated_clients.add(websocket)
+            else:
+                self._auth_attempts[websocket] = 0
+
+                async def send_auth_required(ws=websocket):
+                    try:
+                        await ws.send(json.dumps({"type": "auth_required", "payload": ""}))
+                    except Exception:
+                        pass
+                asyncio.create_task(send_auth_required())
+
+                async def enforce_auth_timeout(ws=websocket, ip=remote_ip):
+                    await asyncio.sleep(30)
+                    if ws not in self._authenticated_clients:
+                        
+                        try:
+                            await ws.close(code=4001, reason="Authentication required")
+                        except Exception:
+                            pass
+                asyncio.create_task(enforce_auth_timeout())
             # --- SEND SERVER VERSION ---
             async def send_version_delayed():
                 await asyncio.sleep(1.5)  # Wait 1.5s for Android to load the listener
@@ -366,6 +573,30 @@ class UnifiedRemoteServer:
                                 payload = json.loads(raw_payload)
                             except Exception as e:
                                 self._put("log", f"⚠️ JSON Parse Error: {e}")
+                                
+                                
+                        if msg_type == "pair":
+                            supplied = str(raw_payload).strip()
+                            if not self.require_password or supplied == self.pairing_password:
+                                self._authenticated_clients.add(websocket)
+                                self._auth_attempts.pop(websocket, None)
+                                self._put("log", f"✅ Client authenticated: {remote_ip}")
+                                try:
+                                    await websocket.send(json.dumps({"type": "auth_result", "payload": "ok"}))
+                                except Exception:
+                                    pass
+                            else:
+                                self._auth_attempts[websocket] = self._auth_attempts.get(websocket, 0) + 1
+                                self._put("log", f"❌ Wrong password from: {remote_ip} (attempt {self._auth_attempts[websocket]})")
+                                try:
+                                    await websocket.send(json.dumps({"type": "auth_result", "payload": "fail"}))
+                                except Exception:
+                                    pass
+                            continue
+
+                        if self.require_password and websocket not in self._authenticated_clients:
+                            # Ignore every other message type until paired
+                            continue
 
                         # --- ROUTING MESSAGES ---
                         if msg_type == "device_info":
@@ -418,6 +649,10 @@ class UnifiedRemoteServer:
                                         pass
                                 self._mic_stream = None
                                 self._mic_rate = new_rate
+                                if hasattr(self, '_mic_player'):
+                                    try:
+                                        self._mic_player.terminate()
+                                    except: pass
                                 
                             except Exception as e:
                                 self._put("log", f"⚠️ Mic start error: {e}")
@@ -537,6 +772,8 @@ class UnifiedRemoteServer:
                 self._put("log", f"⚠️ Handler error: {e}")
             finally:
                 # 4. Clean up Client Records
+                self._authenticated_clients.discard(websocket)
+                self._auth_attempts.pop(websocket, None)
                 if websocket in self.clients:
                     self._put("client_disconnected", self.clients[websocket])
                     del self.clients[websocket]
@@ -1348,9 +1585,11 @@ class UnifiedRemoteServer:
                                     self._broadcast_bytes(video_bytes), self.loop
                                 )
 
-                        # 6. FPS LIMIT
-                        while (time.time() - start_time) < frame_duration:
-                            pass
+                        # 6. FPS LIMIT — sleep instead of busy-waiting (was: while ...: pass)
+                        elapsed = time.time() - start_time
+                        remaining = frame_duration - elapsed
+                        if remaining > 0:
+                            time.sleep(remaining)
 
                     except Exception as e:
                         time.sleep(0.1)
@@ -2155,7 +2394,37 @@ class SettingsDialog(ctk.CTkToplevel):
                                       text_color="#00e676", justify="center")
         self.ent_port.insert(0, str(prefs.get("port", 8080)))
         self.ent_port.pack(side="right")
- 
+        
+       # Security
+        sec4 = section(scroll, "  SECURITY")
+        self.var_require_password = ctk.BooleanVar(value=prefs.get("password_enabled", False))
+        toggle_row(sec4, "Require Password", "Phone must enter this password to connect", self.var_require_password)
+
+        ctk.CTkLabel(sec4, text="Connection Password", font=("Segoe UI", 13),
+                      text_color="#e0e0e0", anchor="w").pack(anchor="w", padx=16, pady=(8, 0))
+        ctk.CTkLabel(sec4, text="Changing this will require reconnecting on all devices",
+                      font=("Segoe UI", 10), text_color="#555", anchor="w").pack(anchor="w", padx=16, pady=(0, 8))
+
+        pw_row = ctk.CTkFrame(sec4, fg_color="transparent")
+        pw_row.pack(fill="x", padx=16, pady=(0, 12))
+        self.ent_password = ctk.CTkEntry(pw_row, font=("Courier New", 13),
+                                          fg_color="#111", border_color="#2a2a2a",
+                                          text_color="#00e676", show="•")
+        self.ent_password.insert(0, prefs.get("password", "useas"))
+        self.ent_password.pack(side="left", fill="x", expand=True, padx=(0, 8))
+
+        self._pw_visible = False
+        def toggle_pw_visibility():
+            self._pw_visible = not self._pw_visible
+            self.ent_password.configure(show="" if self._pw_visible else "•")
+            btn_show.configure(text="🙈" if self._pw_visible else "👁")
+
+        btn_show = ctk.CTkButton(pw_row, text="👁", width=36, height=28,
+                                  fg_color="#111", hover_color="#1e1e1e",
+                                  text_color="#e0e0e0",
+                                  command=toggle_pw_visibility)
+        btn_show.pack(side="right")
+
         # Save
         ctk.CTkButton(self, text="SAVE CHANGES", font=("Courier New", 13, "bold"),
                         fg_color="#00e676", text_color="#000", hover_color="#00c853",
@@ -2174,7 +2443,9 @@ class SettingsDialog(ctk.CTkToplevel):
             "autostart_server": self.var_autostart_server.get(),
             "run_as_admin": self.var_admin.get(),
             "gaming_mode": self.var_gaming_mode.get(),
-            "port": port
+            "port": port,
+            "password": self.ent_password.get().strip(),
+            "password_enabled": self.var_require_password.get()
         })
         self.destroy()
  
@@ -2210,7 +2481,8 @@ class ServerGUI:
  
         self.tray_icon = None
         self.prefs = {"autostart_pc": False, "autostart_server": False,
-                      "run_as_admin": False, "gaming_mode": True, "port": 8080}
+                      "run_as_admin": False, "gaming_mode": True, "port": 8080,
+                      "password": "useas", "password_enabled": False}
         self.load_preferences()
  
         try:
@@ -2356,6 +2628,11 @@ class ServerGUI:
                     except: pass
                 winreg.CloseKey(key)
             except: pass
+
+        if self.is_running:
+            self.log("⚙️ Settings changed — restarting server to apply changes…")
+            self.stop_server()
+            self.root.after(400, self.toggle_server)
  
     def open_settings(self):
         SettingsDialog(self.root, self.prefs, self.save_preferences)
@@ -2596,6 +2873,15 @@ class ServerGUI:
                                     text_color=self.C_ACCENT, state="readonly",
                                     placeholder_text="ws://—.—.—.—:——", height=34)
         self.ent_ip.pack(fill="x", padx=8, pady=(0, 10))
+        ctk.CTkLabel(ip_f, text="ALL NETWORKS", font=("Courier New", 9, "bold"),
+              text_color=self.C_DIM).pack(anchor="w", padx=12, pady=(8, 2))
+        self.txt_endpoints = ctk.CTkTextbox(ip_f, font=("Courier New", 12),
+                                     fg_color="transparent", text_color=self.C_TEXT2, height=70)
+        self.txt_endpoints.pack(fill="x", padx=8, pady=(0, 10))
+        self.txt_endpoints.configure(state="disabled")
+        
+        
+        
  
         # ─ Quick features row ──────────────────────────────
         self._section_label(scroll, "FEATURES")
@@ -2663,6 +2949,23 @@ class ServerGUI:
             fg_color="#000000", hover_color="#0a2914",
             text_color=self.C_ACCENT, border_width=1.5,
             border_color=self.C_ACCENT, command=command)
+            
+            
+            
+            
+     
+    def _update_endpoints(self, endpoints):
+        self.txt_endpoints.configure(state="normal")
+        self.txt_endpoints.delete("1.0", "end")
+        if not endpoints:
+            self.txt_endpoints.insert("end", "⚠️ No active network interfaces detected")
+        else:
+            for ep in endpoints:
+                self.txt_endpoints.insert("end", f"● {ep['label']}: ws://{ep['ip']}:{ep['port']}\n")
+            priority = ["USB Tethering", "Mobile Hotspot", "Wi-Fi", "Ethernet / LAN"]
+            best = min(endpoints, key=lambda e: priority.index(e['label']) if e['label'] in priority else 99)
+            self._set_ip(f"{best['ip']}:{best['port']}")
+        self.txt_endpoints.configure(state="disabled")
  
     # ── Camera Studio ──────────────────────────────────────
     def _build_camera(self, parent):
@@ -2876,7 +3179,10 @@ class ServerGUI:
             if self.server: self.server.stop()
             port = self.prefs.get("port", 8080)
             gaming_mode = self.prefs.get("gaming_mode", True)
-            self.server = UnifiedRemoteServer(port=port, gaming_mode=gaming_mode, update_queue=self.update_queue)
+            password = self.prefs.get("password", "useas")
+            require_password = self.prefs.get("password_enabled", False)
+            
+            self.server = UnifiedRemoteServer(port=port, gaming_mode=gaming_mode, password=password, require_password=require_password, update_queue=self.update_queue)
             self.server.start()
             for _ in range(20):
                 if self.server._loop and self.server._loop.is_running():
@@ -3033,6 +3339,11 @@ class ServerGUI:
                     self._set_ip(data)
                     for btn in [self.btn_obs, self.btn_unity, self.btn_audio]:
                         btn.configure(state="normal")
+                        
+                # --- ADD THIS NEW BLOCK ---
+                elif kind == "update_ip":
+                    self._set_ip(data)
+                # --------------------------
  
                 elif kind == "client_count":
                     self._update_client_badge(data)
@@ -3049,6 +3360,9 @@ class ServerGUI:
                 elif kind == "file_received":
                     self.list_files.insert("end", f"📄 {os.path.basename(data)}\n")
                     self.list_files.see("end")
+                    
+                elif kind == "update_endpoints":
+                    self._update_endpoints(data)
  
                 elif kind == "audio_status":
                     if data:
@@ -3076,7 +3390,10 @@ class ServerGUI:
     def on_closing(self):
         if self.is_running: self.stop_server()
         self.root.destroy()
-
+        
+        
+    
+    
 
 # ============================================
 # MAIN
@@ -3116,6 +3433,6 @@ if __name__ == "__main__":
         sys.exit()
 
     if sys.platform == "win32": asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
-
+    ensure_firewall_rule() 
     app = ServerGUI()
     app.root.mainloop()
