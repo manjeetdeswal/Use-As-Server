@@ -36,8 +36,19 @@ if sys.platform == "win32":
     import win32api
     import ctypes
     from ctypes import windll, wintypes
+    
+    
+if sys.platform == "win32":
+    _OrigPopen = subprocess.Popen
+
+    class _NoWindowPopen(_OrigPopen):
+        def __init__(self, *args, **kwargs):
+            kwargs["creationflags"] = kwargs.get("creationflags", 0) | subprocess.CREATE_NO_WINDOW
+            super().__init__(*args, **kwargs)
+
+    subprocess.Popen = _NoWindowPopen
 # --- CONSTANTS ---
-APP_VERSION = "1.62"
+APP_VERSION = "1.63"
 GITHUB_REPO = "manjeetdeswal/Use-As-Server" 
 GITHUB_URL = f"https://github.com/{GITHUB_REPO}"
 
@@ -82,18 +93,13 @@ def ensure_firewall_rule():
         return
     try:
         exe_path = sys.executable if getattr(sys, 'frozen', False) else __file__
-        # TCP rule (main WebSocket)
-        subprocess.run([
-            "netsh", "advfirewall", "firewall", "add", "rule",
-            "name=UseAsServer_TCP", "dir=in", "action=allow",
-            f"program={exe_path}", "enable=yes", "profile=any", "protocol=TCP"
-        ], capture_output=True, timeout=5)
-        # UDP rule (discovery + mouse)
-        subprocess.run([
-            "netsh", "advfirewall", "firewall", "add", "rule",
-            "name=UseAsServer_UDP", "dir=in", "action=allow",
-            f"program={exe_path}", "enable=yes", "profile=any", "protocol=UDP"
-        ], capture_output=True, timeout=5)
+        for proto, name in (("TCP", "UseAsServer_TCP"), ("UDP", "UseAsServer_UDP")):
+            subprocess.run([
+                "netsh", "advfirewall", "firewall", "add", "rule",
+                f"name={name}", "dir=in", "action=allow",
+                f"program={exe_path}", "enable=yes", "profile=any", f"protocol={proto}"
+            ], capture_output=True, timeout=5,
+               creationflags=subprocess.CREATE_NO_WINDOW)   # <-- no flash
     except Exception as e:
         print(f"Firewall rule error: {e}")
 
@@ -2372,7 +2378,7 @@ class SettingsDialog(ctk.CTkToplevel):
         sec1 = section(scroll, "  GENERAL")
         self.var_autostart_pc = ctk.BooleanVar(value=prefs.get("autostart_pc", False))
         toggle_row(sec1, "Auto-start with Windows", "Launch on login", self.var_autostart_pc)
-        self.var_autostart_server = ctk.BooleanVar(value=prefs.get("autostart_server", False))
+        self.var_autostart_server = ctk.BooleanVar(value=prefs.get("autostart_server", True))
         toggle_row(sec1, "Auto-start server", "Start server immediately on launch", self.var_autostart_server)
         self.var_admin = ctk.BooleanVar(value=prefs.get("run_as_admin", False))
         toggle_row(sec1, "Request admin rights", "Required for some input features", self.var_admin)
@@ -2480,7 +2486,7 @@ class ServerGUI:
         self.root.configure(fg_color=self.C_BG)
  
         self.tray_icon = None
-        self.prefs = {"autostart_pc": False, "autostart_server": False,
+        self.prefs = {"autostart_pc": False, "autostart_server": True,
                       "run_as_admin": False, "gaming_mode": True, "port": 8080,
                       "password": "useas", "password_enabled": False}
         self.load_preferences()
