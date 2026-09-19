@@ -1,3 +1,18 @@
+import sys
+if sys.platform == "win32":
+    import ctypes
+    try:
+        ctypes.windll.user32.SetProcessDpiAwarenessContext(ctypes.c_void_p(-4))  # PER_MONITOR_AWARE_V2
+    except Exception:
+        try:
+            ctypes.windll.shcore.SetProcessDpiAwareness(2)
+        except Exception:
+            try:
+                ctypes.windll.user32.SetProcessDPIAware()
+            except Exception:
+                pass
+
+
 import base64
 import subprocess
 import tkinter as tk
@@ -8,7 +23,7 @@ import threading
 import asyncio
 import json
 import platform
-import sys
+
 from pathlib import Path
 import logging
 import socket
@@ -48,7 +63,7 @@ if sys.platform == "win32":
 
     subprocess.Popen = _NoWindowPopen
 # --- CONSTANTS ---
-APP_VERSION = "1.63"
+APP_VERSION = "1.64"
 GITHUB_REPO = "manjeetdeswal/Use-As-Server" 
 GITHUB_URL = f"https://github.com/{GITHUB_REPO}"
 
@@ -1434,6 +1449,24 @@ class UnifiedRemoteServer:
         except Exception as e:
             self._put("log", f"❌ Display request error: {e}")
 
+    def _probe_monitors(self, sct, target_indices):
+        """One-shot diagnostic: geometry + brightness as THIS process sees it."""
+        import numpy as np
+        try:
+            self._put("log", f"🔍 MSS sees {len(sct.monitors) - 1} monitor(s)")
+            for idx in target_indices:
+                mss_idx = idx + 1
+                if mss_idx >= len(sct.monitors):
+                    self._put("log", f"🔍 Monitor {idx + 1}: does not exist")
+                    continue
+                m = sct.monitors[mss_idx]
+                raw = np.array(sct.grab(m))
+                self._put("log",
+                          f"🔍 Monitor {idx + 1}: {m['width']}x{m['height']} "
+                          f"@ {m['left']},{m['top']} — brightness {raw.mean():.1f}")
+        except Exception as e:
+            self._put("log", f"⚠️ Probe failed: {e}")
+
     def _stop_display_capture(self, wait_seconds: float = 1.0):
         """Stop display capture thread (if running) and wait a short time for it to exit."""
         try:
@@ -1454,67 +1487,79 @@ class UnifiedRemoteServer:
                     self._put("log", " Previous screen capture stopped.")
         except Exception as e:
             self._put("log", f"❌ Error stopping display capture: {e}")
+            
+            
+            
+            
+    
 
     def _capture_screen_loop(self):
         """Continuously capture specific monitor or combined screens (Flicker-Free using MSS)."""
         try:
             import mss
             import cv2
-            import base64
             import time
             import pyautogui
             import numpy as np
-
+ 
             target_indices = self._display_monitor_indices
             self._put("log", f"🖥️ Screen capture started via MSS. Targets: {target_indices}")
-
-            current_quality = getattr(self, '_display_quality', 35)
-            encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), current_quality]
-            
+ 
             last_mouse_pos = (0, 0)
             last_move_time = time.time()
             HIDE_TIMEOUT = 3.0
-
+ 
+            # --- DIAGNOSTICS STATE ---
+            last_black_check = 0.0
+            black_warned = False
+            warned_missing = False
+ 
             with mss.mss() as sct:
                 # sct.monitors[0] is all screens combined
                 # sct.monitors[1] is monitor 1, sct.monitors[2] is monitor 2
-                
+                self._probe_monitors(sct, target_indices)
+ 
                 frame_cache = [None] * len(target_indices)
-
+ 
                 while self._display_active:
                     start_time = time.time()
-                    
+ 
                     target_w = self._display_width
                     target_h = self._display_height
                     target_fps = self._display_fps
                     frame_duration = 1.0 / max(1, target_fps)
-
+ 
+                    # Rebuilt every frame so quality changes apply immediately
+                    encode_param = [int(cv2.IMWRITE_JPEG_QUALITY),
+                                    int(getattr(self, '_display_quality', 35))]
+ 
                     try:
                         # 1. CAPTURE & CACHE
                         frames_ready = []
-                        
+ 
                         for i, idx in enumerate(target_indices):
-                            mss_idx = idx + 1 # Convert app index (0-based) to MSS index (1-based)
-                            
+                            mss_idx = idx + 1  # app index (0-based) -> MSS index (1-based)
+ 
                             if mss_idx < len(sct.monitors):
                                 monitor = sct.monitors[mss_idx]
                                 sct_img = sct.grab(monitor)
                                 # mss returns BGRA, convert to BGR for OpenCV
                                 img = cv2.cvtColor(np.array(sct_img), cv2.COLOR_BGRA2BGR)
-                                
+ 
                                 frame_cache[i] = img
                                 frames_ready.append(img)
                             else:
-                                # Fallback if monitor doesn't exist yet
-                                if frame_cache[i] is not None:
-                                    frames_ready.append(frame_cache[i])
-                                else:
-                                    frames_ready.append(None)
-
+                                if not warned_missing:
+                                    warned_missing = True
+                                    self._put("log",
+                                              f"⚠️ Monitor {idx + 1} doesn't exist — this PC has "
+                                              f"{len(sct.monitors) - 1}. Pick another one in the app.")
+                                frames_ready.append(frame_cache[i])
+ 
                         if any(f is None for f in frames_ready):
-                            time.sleep(0.01)
+                            time.sleep(0.05)
                             continue
-
+ 
                         # 2. STITCHING (For Multi-Monitor Selection)
                         if len(frames_ready) > 1:
                             base_h = frames_ready[0].shape[0]
@@ -1528,7 +1573,21 @@ class UnifiedRemoteServer:
                             final_frame = np.hstack(resized_frames)
                         else:
                             final_frame = frames_ready[0]
-
+ 
+                        # --- BLACK FRAME DETECTION (sampled, ~1 Hz) ---
+                        if time.time() - last_black_check > 1.0:
+                            last_black_check = time.time()
+                            if final_frame[::16, ::16].max() < 8:
+                                if not black_warned:
+                                    black_warned = True
+                                    self._put("log",
+                                              "⚠️ Captured screen is black. The monitor may be asleep, "
+                                              "a virtual display, driven by a second GPU, or showing "
+                                              "protected content.")
+                            elif black_warned:
+                                black_warned = False
+                                self._put("log", "🖥️ Screen capture recovered.")
+ 
                         # 3. DRAW MOUSE (Single Monitor Mode Only)
                         if len(target_indices) == 1:
                             try:
@@ -1536,16 +1595,13 @@ class UnifiedRemoteServer:
                                 if (mx, my) != last_mouse_pos:
                                     last_mouse_pos = (mx, my)
                                     last_move_time = time.time()
-                                
+ 
                                 if time.time() - last_move_time < HIDE_TIMEOUT:
                                     monitor = sct.monitors[target_indices[0] + 1]
                                     local_mx = mx - monitor["left"]
                                     local_my = my - monitor["top"]
-                                    
-                                    # Ensure the base point is somewhat within the screen bounds
+ 
                                     if 0 <= local_mx < final_frame.shape[1] and 0 <= local_my < final_frame.shape[0]:
-                                        
-                                        # Define the polygon points for a classic mouse cursor arrow
                                         cursor_pts = np.array([
                                             [0, 0],     # Tip
                                             [0, 16],    # Left bottom corner
@@ -1555,53 +1611,60 @@ class UnifiedRemoteServer:
                                             [7, 11],    # Inner right
                                             [12, 11]    # Right corner
                                         ], np.int32)
-                                        
-                                        # Shift the points to the current mouse position
-                                        pts = cursor_pts + [local_mx, local_my]
-                                        pts = pts.reshape((-1, 1, 2))
-                                        
-                                        # Draw White Fill
+ 
+                                        pts = (cursor_pts + [local_mx, local_my]).reshape((-1, 1, 2))
                                         cv2.fillPoly(final_frame, [pts], (255, 255, 255))
-                                        # Draw Black Outline (LINE_AA makes the edges smooth)
-                                        cv2.polylines(final_frame, [pts], isClosed=True, color=(0, 0, 0), thickness=1, lineType=cv2.LINE_AA)
-                                        
-                            except: pass
-
+                                        cv2.polylines(final_frame, [pts], isClosed=True,
+                                                      color=(0, 0, 0), thickness=1,
+                                                      lineType=cv2.LINE_AA)
+                            except Exception:
+                                pass
+ 
                         # 4. FIT TO SCREEN
                         h, w = final_frame.shape[:2]
                         scale = min(target_w / w, target_h / h)
-                        
+ 
                         if scale < 1.0:
                             new_w = int(w * scale)
                             new_h = int(h * scale)
-                            final_frame = cv2.resize(final_frame, (new_w, new_h), interpolation=cv2.INTER_NEAREST)
-
+                            final_frame = cv2.resize(final_frame, (new_w, new_h),
+                                                     interpolation=cv2.INTER_NEAREST)
+ 
                         # 5. ENCODE & SEND
                         success, buffer = cv2.imencode('.jpg', final_frame, encode_param)
                         if success:
+                            # --- ONE-SHOT DIAGNOSTIC DUMP (remove once fixed) ---
+                            if not getattr(self, '_dumped_frame', False):
+                                self._dumped_frame = True
+                                try:
+                                    dump = os.path.join(os.path.expanduser("~"), "Downloads",
+                                                        "frame_dump.jpg")
+                                    with open(dump, "wb") as fh:
+                                        fh.write(buffer.tobytes())
+                                    self._put("log",
+                                              f"💾 Dumped frame: {dump} ({len(buffer) // 1024} KB, "
+                                              f"{final_frame.shape[1]}x{final_frame.shape[0]})")
+                                except Exception as e:
+                                    self._put("log", f"⚠️ Frame dump failed: {e}")
+ 
                             # Header byte 0x03 means "This is a Video Frame"
-                            header = b'\x03'
-                            video_bytes = header + buffer.tobytes()
-                            
-                            if hasattr(self, '_send_bytes_to_clients_threadsafe'):
-                                self._send_bytes_to_clients_threadsafe(video_bytes)
-                            else:
-                                import asyncio
-                                asyncio.run_coroutine_threadsafe(
-                                    self._broadcast_bytes(video_bytes), self.loop
-                                )
-
-                        # 6. FPS LIMIT — sleep instead of busy-waiting (was: while ...: pass)
+                            video_bytes = b'\x03' + buffer.tobytes()
+                            self._send_bytes_to_clients_threadsafe(video_bytes)
+ 
+                        # 6. FPS LIMIT
                         elapsed = time.time() - start_time
                         remaining = frame_duration - elapsed
                         if remaining > 0:
                             time.sleep(remaining)
-
+ 
                     except Exception as e:
+                        if not getattr(self, '_logged_capture_err', False):
+                            self._logged_capture_err = True
+                            self._put("log", f"⚠️ Capture loop error: {e}")
                         time.sleep(0.1)
-
+ 
             self._put("log", "🖥️ Screen capture stopped")
-
+ 
         except Exception as e:
             self._put("log", f"❌ Capture Fatal Error: {e}")
             self._display_active = False
@@ -2480,6 +2543,8 @@ class ServerGUI:
  
     def __init__(self):
         self.root = ctk.CTk()
+        
+        
         self.root.title(f"Use As Server  ·  v{APP_VERSION}")
         self.root.geometry("980x700")
         self.root.minsize(860, 620)
@@ -3412,13 +3477,18 @@ if __name__ == "__main__":
 
     if sys.platform == "win32":
         try:
-            import ctypes
-            ctypes.windll.shcore.SetProcessDpiAwareness(1)
+            # -4 = DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2
+            # Required for correct multi-monitor capture coordinates when displays
+            # use different scaling. System-aware (1) returns virtualized rects.
+            ctypes.windll.user32.SetProcessDpiAwarenessContext(ctypes.c_void_p(-4))
         except Exception:
             try:
-                ctypes.windll.user32.SetProcessDPIAware()
+                ctypes.windll.shcore.SetProcessDpiAwareness(2)   # PER_MONITOR_AWARE
             except Exception:
-                pass
+                try:
+                    ctypes.windll.user32.SetProcessDPIAware()
+                except Exception:
+                    pass
 
     # Admin check (Keep existing logic)
     must_be_admin = False
