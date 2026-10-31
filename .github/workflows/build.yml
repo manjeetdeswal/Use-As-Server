@@ -1,0 +1,138 @@
+# Builds Use As Server for Windows, Linux and macOS on GitHub's machines.
+#
+#  - Push a tag like v2.1 (git tag v2.1 && git push origin v2.1): all builds run and are
+#    attached to a GitHub release for that tag. The app's "Check for Update" finds it.
+#  - Actions tab › "Build Use As Server" › Run workflow: builds only, downloadable from the
+#    run's page (Artifacts), no release.
+name: Build Use As Server
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write          # needed to create the release
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false     # one OS failing doesn't cancel the others
+      matrix:
+        include:
+          - name: Windows
+            os: windows-latest
+            requirements: requirements-windows.txt
+          - name: Linux
+            os: ubuntu-22.04           # older glibc = runs on more distros
+            requirements: requirements-linux.txt
+          - name: macOS (Apple silicon)
+            os: macos-15
+            requirements: requirements-mac.txt
+            arch: arm64
+          - name: macOS (Intel)
+            os: macos-15-intel
+            requirements: requirements-mac.txt
+            arch: x86_64
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: requirements-*.txt
+
+      - name: Version
+        shell: bash
+        run: |
+          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+          else
+            VERSION=$(python -c "import re;print(re.search(r'APP_VERSION\s*=\s*\"([^\"]+)\"', open('useas_server/common.py').read()).group(1))")
+          fi
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "Building version $VERSION"
+
+      - name: System packages (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y portaudio19-dev
+
+      - name: System packages (macOS)
+        if: runner.os == 'macOS'
+        run: brew install portaudio
+
+      - name: Python packages
+        timeout-minutes: 20
+        env:
+          # vgamepad would otherwise start the ViGEmBus driver installer and wait forever
+          VGAMEPAD_SKIP_VIGEMBUS_INSTALL: "true"
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r ${{ matrix.requirements }}
+
+      - name: Stamp the version
+        shell: bash
+        run: |
+          python - <<'PY'
+          import os, re
+          p = "useas_server/common.py"
+          s = open(p, encoding="utf-8").read()
+          s = re.sub(r'APP_VERSION\s*=\s*"[^"]*"', f'APP_VERSION = "{os.environ["VERSION"]}"', s)
+          open(p, "w", encoding="utf-8").write(s)
+          PY
+
+      - name: Build with PyInstaller
+        run: python -m PyInstaller --noconfirm UseAsServer.spec
+
+      # ---- package per OS ----
+      - name: Installer (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { choco install innosetup -y --no-progress }
+          & $iscc "/DMyAppVersion=$env:VERSION" my.iss
+          New-Item -ItemType Directory -Force upload | Out-Null
+          Copy-Item Output\*.exe upload\
+          Copy-Item dist\UseAsServer.exe "upload\UseAsServer_v$($env:VERSION)_portable.exe"
+
+      - name: Archive (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          mkdir -p upload
+          chmod +x dist/UseAsServer
+          tar -czf "upload/UseAsServer_v${VERSION}_linux_x86_64.tar.gz" -C dist UseAsServer
+
+      - name: Disk image (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          mkdir -p upload
+          hdiutil create -volname "Use As Server" -srcfolder "dist/Use As Server.app" -ov -format UDZO \
+            "upload/UseAsServer_v${VERSION}_mac_${{ matrix.arch }}.dmg"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: UseAsServer-${{ runner.os }}-${{ matrix.arch || 'x64' }}
+          path: upload/*
+          if-no-files-found: error
+
+  release:
+    name: GitHub release
+    needs: build
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: files
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: files/*
+          generate_release_notes: true

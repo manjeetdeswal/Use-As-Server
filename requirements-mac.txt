@@ -1,0 +1,4 @@
+-r requirements-common.txt
+pynput
+pyobjc-framework-Quartz
+pyobjc-framework-Cocoa

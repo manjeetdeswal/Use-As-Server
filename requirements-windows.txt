@@ -1,0 +1,9 @@
+-r requirements-common.txt
+pywin32
+vgamepad
+pyaudiowpatch
+screen-brightness-control
+# song title / cover of what's playing, for the phone
+winrt-Windows.Media.Control
+winrt-Windows.Storage.Streams
+winrt-Windows.Foundation

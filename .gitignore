@@ -1,0 +1,8 @@
+# Build output (GitHub Actions makes these on every release)
+build/
+dist/
+Output/
+__pycache__/
+*.pyc
+# Local backups made while editing
+_backup_*/

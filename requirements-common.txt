@@ -1,0 +1,18 @@
+# Packages every build of Use As Server needs (see requirements-<os>.txt for the rest).
+customtkinter
+pillow
+pystray
+websockets
+pyautogui
+pyperclip
+mss
+numpy
+opencv-python
+psutil
+pyaudio
+pyvirtualcam
+mediapipe
+qrcode
+tkinterdnd2
+av
+pyinstaller
