@@ -14,6 +14,7 @@ import socket
 import sys
 import threading
 import time
+from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
 
 import cv2
@@ -22,7 +23,9 @@ import psutil
 import pyperclip
 import websockets
 
-from . import media, nowplaying, protocol
+from collections import deque
+
+from . import filebrowser, media, nowplaying, pccontrol, pcstats, protocol, streaming, thumbs
 from .common import APP_VERSION, SAVE_DIR, resource_path, safe_filename, unique_path
 from .platforms import get_platform
 from .platforms.base import normalize_gamepad_state
@@ -33,9 +36,11 @@ except Exception as e:
     print(f"❌ Error creating folder: {e}")
 
 class DiscoveryServer(threading.Thread):
-    def __init__(self, port=8080, update_queue=None):
+    def __init__(self, port=8080, update_queue=None, server_id="", name=""):
         super().__init__()
         self.port = port
+        self.server_id = server_id
+        self.name = name
         self.running = True
         self.update_queue = update_queue
         self.current_ips = set()
@@ -172,7 +177,12 @@ class DiscoveryServer(threading.Thread):
                 self.update_queue.put(("log", f"❌ Discovery Fatal: {e}"))
             return
 
-        message = f"UNIFIED_REMOTE_SERVER:{self.port}".encode('utf-8')
+        # "UNIFIED_REMOTE_SERVER:port" is all old apps read; new ones also take the id (to
+        # recognise a saved PC whose address changed) and the PC's name.
+        message = f"UNIFIED_REMOTE_SERVER:{self.port}"
+        if self.server_id:
+            message += f":{self.server_id}:{self.name}"
+        message = message.encode('utf-8')
 
         primary_ip = self._get_primary_ip()
         interfaces = self.get_active_ips()
@@ -336,10 +346,32 @@ class UnifiedRemoteServer:
         except Exception as e:
             self._put("log", f"⚠️ Platform setup: {e}")
 
+        # Identity: lets the phone remember this PC (and its password) even when its address
+        # changes, and wake it with Wake-on-LAN.
+        self.server_id = self._load_server_id()
+        self.pc_name = (socket.gethostname() or "PC")[:40]
+
+        # Settings the GUI fills in (see gui.start_sequence).
+        self.allow_file_browsing = True
+        self.allow_power_control = True
+        self.browse_folders = []          # folders the phone may browse; [] = the whole PC
+        self.allow_file_changes = True    # phone may rename files / move them to the Recycle Bin
+        self.allow_deck_commands = True   # the phone's custom buttons may run commands / open files
+        self.clip_history = deque(maxlen=20)   # recent clipboard texts, both directions
+        self._stream_server = None        # HTTP server for photos / video / music (started on demand)
+        self._notif_owner = {}            # phone notification key -> websocket it came from
+        self._cancel_gen = {}             # websocket -> bumped when that phone cancels downloads
+        self._brightness_target = None    # latest brightness the phone asked for (coalesced)
+        # The Start-menu app list takes a few seconds on Windows: build it in the background.
+        threading.Thread(target=pccontrol.list_launchers, daemon=True, name="launchers-warmup").start()
+
         # Work that must not run on the asyncio thread (it would stall every client).
         # One worker each, so events keep their order (key down before key up, etc.).
         self._input_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="input")
         self._control_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="control")
+        # Thumbnails for the phone's file / app / window lists (slow-ish, so off the control thread).
+        self._thumb_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="thumbs",
+                                                  initializer=thumbs.thread_init)
 
         # Per-feature subscribers, so streams only go to the phones that asked for them
         # and stop when those phones disconnect.
@@ -420,7 +452,8 @@ class UnifiedRemoteServer:
         threading.Thread(target=self._clipboard_watcher, daemon=True, name="clipboard").start()
 
         # 1. START DISCOVERY (Broadcasts the TCP port)
-        self.discovery = DiscoveryServer(port=self.port, update_queue=self.update_queue)
+        self.discovery = DiscoveryServer(port=self.port, update_queue=self.update_queue,
+                                         server_id=self.server_id, name=self.pc_name)
         self.discovery.start()
 
         # 2. START UDP MOUSE (Listens on TCP Port + 1) — authenticated phones only
@@ -466,6 +499,8 @@ class UnifiedRemoteServer:
 
     def send_to_android(self, msg_type, payload):
         """Helper to send JSON messages to Android (Thread-Safe)."""
+        if msg_type == "clipboard_text" and isinstance(payload, str):
+            self._note_clip(payload, "pc")
         # Ensure the loop exists and is running
         if self._loop and self._loop.is_running() and self._broadcast_queue:
             message = json.dumps({"type": msg_type, "payload": payload})
@@ -624,6 +659,419 @@ class UnifiedRemoteServer:
                 self.send_file_to_phone_thread(f)
         threading.Thread(target=send_all, daemon=True, name="clip-files").start()
         return True
+
+    # ---------------------------------------------------------------
+    # PC CONTROLS: power, volume, apps, files, phone notifications
+    # ---------------------------------------------------------------
+    def _reply(self, ws, msg_type, payload):
+        self._send_to_one(ws, protocol.encode(msg_type, payload))
+
+    POWER_NAMES = {"lock": "Lock", "sleep": "Sleep", "hibernate": "Hibernate", "screen_off": "Screen off",
+                   "restart": "Restart", "shutdown": "Shut down", "cancel_shutdown": "Cancel shutdown",
+                   "sign_out": "Sign out"}
+
+    def _pc_power(self, ws, action, payload=None):
+        payload = payload or {}
+        if action == "status":
+            pending = pccontrol.scheduled_power()
+            self._reply(ws, "pc_power_result", {"action": pending["action"] if pending else "none",
+                                                "ok": True, "status": True, "message": "",
+                                                "delay": pending["seconds"] if pending else 0})
+            return
+        if not self.allow_power_control:
+            self._reply(ws, "pc_power_result", {"action": action, "ok": False,
+                                                "message": "Power controls are off on this PC"})
+            return
+        if action == "schedule":
+            target = str(payload.get("target", ""))
+            try:
+                minutes = float(payload.get("minutes", 0))
+            except (TypeError, ValueError):
+                minutes = 0
+            if target not in pccontrol.TIMER_ACTIONS or minutes <= 0:
+                self._reply(ws, "pc_power_result", {"action": target, "ok": False, "message": "Bad timer"})
+                return
+
+            def fired(act, result):
+                self._put("log", f"⏰ Timer: {self.POWER_NAMES.get(act, act)} — "
+                                 f"{result[1] if result[0] else 'failed: ' + result[1]}")
+            seconds = pccontrol.schedule_power(target, minutes, on_fire=fired)
+            mins = round(seconds / 60)
+            text = f"{self.POWER_NAMES.get(target, target)} in {mins // 60} h {mins % 60} min" if mins >= 60 \
+                else f"{self.POWER_NAMES.get(target, target)} in {mins} min"
+            self._put("log", f"⏰ Timer set from phone: {text}")
+            self._reply(ws, "pc_power_result", {"action": target, "ok": True, "message": text,
+                                                "delay": seconds, "timer": True})
+            return
+        if action == "cancel_shutdown":
+            had_timer = pccontrol.cancel_scheduled_power()
+            ok, message = pccontrol.power(action)
+            if had_timer:
+                ok, message = True, "Cancelled"
+            self._put("log", f"⏻ Cancel from phone: {message}")
+            self._reply(ws, "pc_power_result", {"action": action, "ok": ok, "message": message, "delay": 0})
+            return
+        ok, message = pccontrol.power(action)
+        names = self.POWER_NAMES
+        self._put("log", f"⏻ {names.get(action, action)} from phone: {message if ok else 'failed — ' + message}")
+        self._reply(ws, "pc_power_result", {"action": action, "ok": ok, "message": message,
+                                            "delay": pccontrol.SHUTDOWN_DELAY
+                                            if action in ("shutdown", "restart") else 0})
+
+    def _pc_volume(self, ws, payload):
+        action = str(payload.get("action", "get"))
+        if action in ("sessions", "session_set", "session_mute"):
+            sid = str(payload.get("id", ""))
+            if action == "session_set":
+                pccontrol.set_session_volume(sid, payload.get("level", 50))
+            elif action == "session_mute":
+                pccontrol.toggle_session_mute(sid)
+            self._reply(ws, "pc_mixer", {"sessions": pccontrol.list_sessions()})
+            return
+        if action == "set":
+            pccontrol.set_volume(payload.get("level", 50))
+        elif action == "mute":
+            pccontrol.toggle_mute()
+        state = pccontrol.get_volume()
+        if state is not None:
+            self._reply(ws, "pc_status", {"volume": state[0], "muted": state[1]})
+
+    def _pc_brightness(self, ws, payload):
+        """Slider moves arrive faster than monitors can change: only the latest value is applied."""
+        if str(payload.get("action", "get")) == "set":
+            try:
+                self._brightness_target = max(0, min(100, int(payload.get("level", 50))))
+            except (TypeError, ValueError):
+                return
+        self._submit(self._control_executor, self._apply_brightness, ws)
+
+    def _apply_brightness(self, ws):
+        target, self._brightness_target = self._brightness_target, None
+        if target is not None:
+            pccontrol.set_brightness(target)
+        level = pccontrol.get_brightness() if target is None else target
+        self._reply(ws, "pc_brightness", {"level": level})
+
+    def _apps_list(self, ws, with_launchers):
+        payload = {"windows": pccontrol.list_windows()}
+        if with_launchers:
+            payload["launchers"] = pccontrol.list_launchers()
+        self._reply(ws, "apps", payload)
+
+    def _app_action(self, ws, payload):
+        action, item = str(payload.get("action", "")), str(payload.get("id", ""))
+        if action in ("minimize", "maximize", "restore"):
+            ok = pccontrol.set_window_state(item, action)
+        else:
+            ok = {"focus": pccontrol.focus_window, "close": pccontrol.close_window,
+                  "launch": pccontrol.launch}.get(action, lambda _i: False)(item)
+        if action == "launch":
+            self._put("log", f"🚀 App launched from phone: {os.path.basename(item)}" if ok
+                      else f"⚠️ Couldn't launch {os.path.basename(item)}")
+        time.sleep(0.4 if action != "launch" else 1.5)     # let the window list settle
+        self._apps_list(ws, False)
+
+    def _fs_list(self, ws, payload):
+        req = payload.get("req", 0)
+        path = str(payload.get("path", "") or "")
+        if not self.allow_file_browsing:
+            self._reply(ws, "fs_listing", {"req": req, "error": "File browsing is off on this PC"})
+            return
+        try:
+            if not path:
+                self._reply(ws, "fs_listing", {"req": req, "path": "", "parent": "",
+                                               "roots": filebrowser.roots(self.browse_folders), "entries": []})
+            else:
+                self._reply(ws, "fs_listing", dict(filebrowser.list_dir(path, self.browse_folders), req=req))
+        except PermissionError:
+            self._reply(ws, "fs_listing", {"req": req, "path": path, "error": "No permission to open this folder"})
+        except Exception as e:
+            self._reply(ws, "fs_listing", {"req": req, "path": path, "error": str(e)[:200]})
+
+    def _fs_download(self, ws, payload):
+        """One file ("path"), or several files / folders ("paths"); folders are zipped first."""
+        if not self.allow_file_browsing:
+            return
+        paths = payload.get("paths")
+        if not isinstance(paths, list):
+            paths = [payload.get("path", "")]
+        items = [str(p) for p in paths[:500] if p]
+        items = [p for p in items if (os.path.isfile(p) or os.path.isdir(p))
+                 and filebrowser.is_allowed(p, self.browse_folders)]
+        if not items:
+            return
+        names = ", ".join(os.path.basename(p.rstrip("\\/")) for p in items[:3]) + (" …" if len(items) > 3 else "")
+        self._put("log", f"📥 Phone downloads {names}")
+        threading.Thread(target=self._download_batch, args=(ws, items), daemon=True, name="fs-download").start()
+
+    # --- clipboard history ------------------------------------------------------------------
+    def _note_clip(self, text, source):
+        """source: "pc" (copied here, sent to the phone) or "phone" (came from it)."""
+        text = str(text)
+        if not text.strip():
+            return
+        for item in list(self.clip_history):
+            if item["text"] == text:
+                self.clip_history.remove(item)
+        self.clip_history.appendleft({"text": text[:20000], "source": source, "time": time.time()})
+        self._put("clip_history", None)
+
+    # --- PC status ----------------------------------------------------------------------------
+    def _pc_stats(self, ws):
+        if ws not in self.clients:
+            return
+        try:
+            self._reply(ws, "pc_stats", pcstats.stats())
+        except Exception as e:
+            self._reply(ws, "pc_stats", {"error": str(e)[:200]})
+
+    # --- photo / video / music streaming --------------------------------------------------
+    def _fs_stream(self, ws, payload):
+        """Links the phone can open: {"req", "port", "items": [{"path", "token"}]}."""
+        req = payload.get("req", 0)
+        paths = payload.get("paths")
+        if not isinstance(paths, list):
+            paths = [payload.get("path", "")]
+        paths = [str(p) for p in paths[:600] if p]
+        if not self.allow_file_browsing:
+            self._reply(ws, "fs_stream_info", {"req": req, "error": "File browsing is off on this PC"})
+            return
+        try:
+            if self._stream_server is None:
+                self._stream_server = streaming.FileStreamServer(
+                    host=self.host if self.host else "0.0.0.0", preferred_port=self.port + 2)
+                self._put("log", f"🎞️ Photo / video streaming on port {self._stream_server.port}")
+            items = [{"path": p, "token": self._stream_server.register(p)} for p in paths
+                     if os.path.isfile(p) and filebrowser.is_allowed(p, self.browse_folders)]
+            self._reply(ws, "fs_stream_info", {"req": req, "port": self._stream_server.port, "items": items})
+        except Exception as e:
+            self._reply(ws, "fs_stream_info", {"req": req, "error": str(e)[:200]})
+
+    # --- custom buttons (the phone's Deck) ------------------------------------------------------
+    def _deck_run(self, ws, payload):
+        kind = str(payload.get("kind", ""))
+        target = str(payload.get("target", "") or "")
+        bid = payload.get("id", "")
+        label = str(payload.get("label", "") or kind)
+        ok, message = False, ""
+        try:
+            if kind == "url":
+                import webbrowser
+                url = target.strip()
+                if not url.lower().startswith(("http://", "https://")):
+                    url = "https://" + url
+                ok = webbrowser.open(url)
+                message = "Opened in the browser" if ok else "Couldn't open the browser"
+            elif kind == "app":
+                ok = pccontrol.launch(target)
+                message = "Started" if ok else "That app isn't in the Start menu any more"
+            elif kind in ("open", "command"):
+                if not self.allow_deck_commands:
+                    raise ValueError("Running programs from the phone is off on this PC "
+                                     "(Settings › Phone access)")
+                if kind == "open":
+                    path = os.path.expandvars(os.path.expanduser(target.strip().strip('"')))
+                    if not os.path.exists(path):
+                        raise ValueError("That file or folder isn't on this PC")
+                    filebrowser.open_on_pc(path)
+                else:
+                    import subprocess
+                    if not target.strip():
+                        raise ValueError("No command")
+                    subprocess.Popen(target, shell=True,
+                                     creationflags=0x08000000 if sys.platform == "win32" else 0,
+                                     cwd=os.path.expanduser("~"))
+                ok, message = True, "Started"
+            elif kind == "type":
+                self._type_text(target)
+                ok, message = True, "Typed"
+            else:
+                raise ValueError("Unknown button type")
+            self._put("log", f"🔘 Button \"{label}\": {message}")
+        except ValueError as e:
+            message = str(e)
+        except Exception as e:
+            message = str(e)[:200]
+            self._put("log", f"⚠️ Button \"{label}\" failed: {message}")
+        self._reply(ws, "deck_result", {"id": bid, "ok": ok, "message": message})
+
+    def _type_text(self, text):
+        """Type a string on the PC as if from the keyboard (any language / emoji)."""
+        for ch in str(text)[:5000]:
+            if ch == "\n":
+                self.platform.key_event("enter", [], "press", gaming_mode=False)
+            elif ch == "\t":
+                self.platform.key_event("tab", [], "press", gaming_mode=False)
+            elif ch == "\r":
+                continue
+            else:
+                self.platform.type_unicode(ch, "press")
+            time.sleep(0.004)
+
+    # --- calls ---------------------------------------------------------------------------------
+    def call_action(self, key, action):
+        """GUI: decline / answer / hang up a phone call (the phone presses its own button)."""
+        ws = self._notif_owner.get(key)
+        if ws is None:
+            return False
+        self._send_to_one(ws, protocol.encode("call_action", {"key": key, "action": action}))
+        return True
+
+    def _fs_action(self, ws, payload):
+        """open / reveal (on the PC), rename, trash (Recycle Bin) — from the phone's file browser."""
+        action = str(payload.get("action", ""))
+        paths = payload.get("paths")
+        if not isinstance(paths, list):
+            paths = [payload.get("path", "")]
+        paths = [str(p) for p in paths[:500] if p]
+        reply = {"action": action, "ok": False, "message": ""}
+        try:
+            if not self.allow_file_browsing:
+                raise ValueError("File browsing is off on this PC")
+            if not paths or not all(os.path.exists(p) and filebrowser.is_allowed(p, self.browse_folders)
+                                    for p in paths):
+                raise ValueError("That file isn't there any more")
+            if action in ("rename", "trash") and not self.allow_file_changes:
+                raise ValueError("Changing files from the phone is off on this PC")
+            name = os.path.basename(paths[0].rstrip("\\/"))
+            if action == "open":
+                filebrowser.open_on_pc(paths[0])
+                reply.update(ok=True, message=f"Opened {name} on the PC")
+            elif action == "reveal":
+                filebrowser.reveal_on_pc(paths[0])
+                reply.update(ok=True, message=f"Showing {name} on the PC")
+            elif action == "rename":
+                new_path = filebrowser.rename(paths[0], str(payload.get("name", "")), self.browse_folders)
+                reply.update(ok=True, message=f"Renamed to {os.path.basename(new_path)}", path=new_path)
+                self._put("log", f"✏️ Phone renamed {name} → {os.path.basename(new_path)}")
+            elif action == "trash":
+                moved = filebrowser.move_to_trash(paths, self.browse_folders)
+                if moved == 0:
+                    raise ValueError("Couldn't move that to the Recycle Bin")
+                what = name if len(paths) == 1 else f"{moved} items"
+                reply.update(ok=True, message=f"Moved {what} to the Recycle Bin", count=moved)
+                self._put("log", f"🗑️ Phone moved {what} to the Recycle Bin")
+            else:
+                raise ValueError("Unknown action")
+        except ValueError as e:
+            reply["message"] = str(e)
+        except PermissionError:
+            reply["message"] = "Windows didn't allow that (the file may be open or protected)"
+        except Exception as e:
+            reply["message"] = str(e)[:200]
+        self._reply(ws, "fs_action_result", reply)
+
+    def _download_batch(self, ws, items):
+        gen = self._cancel_gen.get(ws, 0)
+        count = len(items)
+        for index, path in enumerate(items, 1):
+            if self._cancel_gen.get(ws, 0) != gen or ws not in self.clients:
+                return
+            if os.path.isdir(path):
+                zip_path = self._zip_folder(ws, path, gen, (index, count))
+                if zip_path is None:
+                    return
+                try:
+                    folder = os.path.basename(path.rstrip("\\/")) or "folder"
+                    self.send_file_to_phone_thread(zip_path, only=ws, display_name=folder + ".zip",
+                                                   batch=(index, count), cancel_gen=gen)
+                finally:
+                    try:
+                        os.remove(zip_path)
+                    except OSError:
+                        pass
+            else:
+                self.send_file_to_phone_thread(path, only=ws, batch=(index, count), cancel_gen=gen)
+
+    def _zip_folder(self, ws, folder, gen, batch):
+        """Zip a folder to a temp file (fast compression). None if cancelled or failed."""
+        import tempfile
+        import zipfile
+        name = (os.path.basename(folder.rstrip("\\/")) or "folder") + ".zip"
+        files = []
+        for root, dirs, fnames in os.walk(folder):
+            dirs[:] = [d for d in dirs if not d.startswith(".")]
+            files.extend(os.path.join(root, f) for f in fnames)
+        total = len(files)
+        self._put("log", f"🗜️ Zipping {name} ({total} files) for the phone…")
+
+        def preparing(done):
+            self._send_to_one(ws, protocol.encode("file_preparing", {
+                "name": name, "done": done, "total": total, "batch_index": batch[0], "batch_count": batch[1]}))
+        preparing(0)
+        fd, tmp = tempfile.mkstemp(suffix=".zip", prefix="useas_")
+        os.close(fd)
+        last = time.time()
+        try:
+            with zipfile.ZipFile(tmp, "w", zipfile.ZIP_DEFLATED, compresslevel=1, allowZip64=True) as z:
+                base = os.path.dirname(folder.rstrip("\\/"))
+                for i, f in enumerate(files, 1):
+                    if self._cancel_gen.get(ws, 0) != gen or ws not in self.clients:
+                        raise InterruptedError
+                    try:
+                        z.write(f, os.path.relpath(f, base))
+                    except (OSError, ValueError):
+                        continue            # locked / vanished files are skipped
+                    if time.time() - last > 0.5:
+                        last = time.time()
+                        preparing(i)
+            return tmp
+        except InterruptedError:
+            self._send_to_one(ws, protocol.encode("file_cancel", {"name": name}))
+            self._put("log", f"⛔ Zipping {name} cancelled")
+        except Exception as e:
+            self._send_to_one(ws, protocol.encode("file_cancel", {"name": name, "error": str(e)[:200]}))
+            self._put("log", f"❌ Couldn't zip {name}: {e}")
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+        return None
+
+    def _thumb(self, ws, payload):
+        """One thumbnail / icon for the phone. Missing ones are answered too (no "data"),
+        so the phone stops waiting and keeps its own icon."""
+        if ws not in self.clients:
+            return
+        kind = str(payload.get("kind", ""))
+        ident = str(payload.get("id", ""))
+        try:
+            size = max(32, min(int(payload.get("size", 96) or 96), 640))
+        except (TypeError, ValueError):
+            size = 96
+        result = None
+        try:
+            if kind == "file" and self.allow_file_browsing and os.path.isabs(ident) \
+                    and filebrowser.is_allowed(ident, self.browse_folders):
+                result = thumbs.for_file(ident, size)
+            elif kind == "app" and pccontrol.is_launcher(ident):
+                result = thumbs.for_app(ident, size)
+            elif kind == "window":
+                result = thumbs.for_program(pccontrol.window_source(ident), size)
+            elif kind == "preview":
+                result = thumbs.window_preview(ident, max(size, 160))
+            elif kind == "session":
+                result = thumbs.for_program(pccontrol.program_source("session:" + ident), size)
+        except Exception:
+            result = None
+        reply = {"kind": kind, "id": ident}
+        if result:
+            reply["mime"] = result[0]
+            reply["data"] = base64.b64encode(result[1]).decode("ascii")
+        self._reply(ws, "thumb", reply)
+
+    def reply_to_notification(self, key, text):
+        """GUI: quick reply to a phone notification (sent to the phone that showed it)."""
+        ws = self._notif_owner.get(key)
+        if ws is not None:
+            self._send_to_one(ws, protocol.encode("notification_reply", {"key": key, "text": text}))
+            return True
+        return False
+
+    def dismiss_notification(self, key):
+        ws = self._notif_owner.pop(key, None)
+        if ws is not None:
+            self._send_to_one(ws, protocol.encode("notification_dismiss", {"key": key}))
 
     # ---------------------------------------------------------------
     # NOW PLAYING / MEDIA CONTROLS
@@ -811,7 +1259,25 @@ class UnifiedRemoteServer:
     def codec_features(self):
         """Phase 3 features, depending on whether PyAV (FFmpeg) is installed."""
         if self._feature_cache is None:
-            feats = ["binary_pc_audio", "skip_static_frames", "keyframe_request", "media_control"]
+            feats = ["binary_pc_audio", "skip_static_frames", "keyframe_request", "media_control",
+                     "power_control", "app_launcher", "phone_notifications", "saved_pcs", "thumbnails"]
+            feats += ["power_timer", "pc_stats", "deck", "phone_calls"]
+            if pccontrol.hibernate_supported():
+                feats.append("power_hibernate")
+            if pccontrol.volume_supported():
+                feats.append("pc_volume")
+            if pccontrol.mixer_supported():
+                feats.append("pc_mixer")
+            if pccontrol.brightness_supported():
+                feats.append("pc_brightness")
+            if pccontrol.windows_supported():
+                feats.append("app_switcher")
+            if pccontrol.window_actions_supported():
+                feats.append("window_actions")
+            if sys.platform == "win32":
+                feats.append("window_previews")
+            if "virtual_display" in self.platform.features and self.platform.name == "windows":
+                feats.append("phone_shaped_monitor")
             if self._now_playing_backend() is not None:
                 feats.append("now_playing")
             try:
@@ -827,13 +1293,53 @@ class UnifiedRemoteServer:
             self._feature_cache = feats
         return list(self._feature_cache)
 
+    def _load_server_id(self):
+        path = self.platform.settings_dir / "server_id"
+        try:
+            sid = path.read_text().strip()
+            if sid:
+                return sid
+        except OSError:
+            pass
+        import uuid
+        sid = uuid.uuid4().hex[:16]
+        try:
+            self.platform.settings_dir.mkdir(parents=True, exist_ok=True)
+            path.write_text(sid)
+        except OSError:
+            pass
+        return sid
+
+    def mac_addresses(self):
+        """MACs of the network adapters that carry this PC's addresses (for Wake-on-LAN)."""
+        macs = []
+        try:
+            ips = {d["ip"] for d in self.discovery.get_active_ips()}
+            for iface, addrs in psutil.net_if_addrs().items():
+                if not any(a.family == socket.AF_INET and a.address in ips for a in addrs):
+                    continue
+                for a in addrs:
+                    if a.family == psutil.AF_LINK and a.address:
+                        mac = a.address.replace("-", ":").upper()
+                        if mac not in ("00:00:00:00:00:00",) and mac not in macs:
+                            macs.append(mac)
+        except Exception:
+            pass
+        return macs
+
     def server_hello(self):
         return {
+            "server_id": self.server_id,
+            "name": self.pc_name,
+            "macs": self.mac_addresses(),
             "protocol": protocol.PROTOCOL_VERSION,
             "min_protocol": protocol.MIN_CLIENT_PROTOCOL,
             "server_version": APP_VERSION,
             "os": self.platform.name,
-            "features": list(self.BASE_FEATURES) + list(self.platform.features) + self.codec_features(),
+            "features": list(self.BASE_FEATURES) + list(self.platform.features) + self.codec_features()
+                        + (["file_browser", "fs_batch", "fs_cancel", "fs_upload", "fs_recent", "fs_open", "fs_stream",
+                            "monitor_size"] if self.allow_file_browsing else ["monitor_size"])
+                        + (["fs_edit"] if self.allow_file_browsing and self.allow_file_changes else []),
             "auth_required": bool(self.require_password),
         }
 
@@ -1032,6 +1538,43 @@ class UnifiedRemoteServer:
                 self._submit(self._control_executor, self._phone_audio_stop, websocket)
         elif msg_type == "display_request":
             self._submit(self._control_executor, self._handle_display_request, payload, websocket)
+        elif msg_type == "pc_power":
+            self._submit(self._control_executor, self._pc_power, websocket, str(payload.get("action", "")), payload)
+        elif msg_type == "pc_brightness":
+            self._pc_brightness(websocket, payload)
+        elif msg_type == "pc_volume":
+            self._submit(self._control_executor, self._pc_volume, websocket, payload)
+        elif msg_type == "apps_list":
+            self._submit(self._control_executor, self._apps_list, websocket, bool(payload.get("launchers", False)))
+        elif msg_type == "app_action":
+            self._submit(self._control_executor, self._app_action, websocket, payload)
+        elif msg_type == "fs_list":
+            self._submit(self._control_executor, self._fs_list, websocket, payload)
+        elif msg_type == "fs_download":
+            self._fs_download(websocket, payload)
+        elif msg_type == "pc_stats":
+            self._submit(self._thumb_executor, self._pc_stats, websocket)
+        elif msg_type == "fs_stream":
+            self._submit(self._control_executor, self._fs_stream, websocket, payload)
+        elif msg_type == "deck_run":
+            self._submit(self._control_executor, self._deck_run, websocket, payload)
+        elif msg_type == "phone_call":
+            self._notif_owner[str(payload.get("key", ""))] = websocket
+            self._put("phone_call", payload)
+        elif msg_type == "phone_call_end":
+            self._put("phone_call_end", str(payload.get("key", "")))
+        elif msg_type == "fs_action":
+            self._submit(self._control_executor, self._fs_action, websocket, payload)
+        elif msg_type == "fs_cancel":
+            self._cancel_gen[websocket] = self._cancel_gen.get(websocket, 0) + 1
+        elif msg_type == "thumb_request":
+            self._submit(self._thumb_executor, self._thumb, websocket, payload)
+        elif msg_type == "phone_notification":
+            self._notif_owner[str(payload.get("key", ""))] = websocket
+            self._put("phone_notification", payload)
+        elif msg_type == "phone_notification_removed":
+            self._notif_owner.pop(str(payload.get("key", "")), None)
+            self._put("phone_notification_removed", str(payload.get("key", "")))
         elif msg_type == "media_subscribe":
             self._submit(self._control_executor, self._media_subscribe, websocket, bool(payload.get("on", True)))
         elif msg_type == "media_control":
@@ -1042,6 +1585,7 @@ class UnifiedRemoteServer:
         elif msg_type == "clipboard_text":
             text = payload["text"]
             if text:
+                self._note_clip(text, "phone")
                 self._last_clip = text   # don't auto-sync it straight back
                 try:
                     pyperclip.copy(text)
@@ -1087,18 +1631,28 @@ class UnifiedRemoteServer:
         if pcm:
             self._queue_mic_pcm(pcm)
 
-    def send_file_to_phone_thread(self, file_path):
+    def send_file_to_phone_thread(self, file_path, only=None, display_name=None, batch=None, cancel_gen=None):
+        """Send one file. A phone that sends fs_cancel is dropped from the transfer (and told
+        with file_cancel); `cancel_gen` is the cancel counter the caller started with.
+        Returns True when it reached at least one phone."""
         # `with` so a failure before/while acquiring can never release another transfer's lock.
         with self.sending_lock:
             try:
-                filename = safe_filename(os.path.basename(file_path))
+                filename = safe_filename(display_name or os.path.basename(file_path))
                 file_size = os.path.getsize(file_path)
 
                 loop = self._loop
                 targets = self._auth_targets()
+                if only is not None:                 # a download one phone asked for
+                    targets = [ws for ws in targets if ws is only]
+                # Each phone's cancel counter as of now (or as of the start of its batch).
+                gens = {ws: (cancel_gen if cancel_gen is not None and ws is only else self._cancel_gen.get(ws, 0))
+                        for ws in targets}
+                targets = [ws for ws in targets if self._cancel_gen.get(ws, 0) == gens[ws]]
                 if not (loop and loop.is_running()) or not targets:
-                    self._put("log", "⚠️ No connected phone to send the file to")
-                    return
+                    if only is None:
+                        self._put("log", "⚠️ No connected phone to send the file to")
+                    return False
 
                 self._put("log", f"📤 Starting transfer: {filename}")
 
@@ -1108,9 +1662,25 @@ class UnifiedRemoteServer:
                     fut = asyncio.run_coroutine_threadsafe(self._send_to(targets, data), loop)
                     fut.result(timeout=timeout)
 
+                def drop_cancelled():
+                    """Stop sending to phones that cancelled; True when nobody is left."""
+                    nonlocal targets
+                    gone = [ws for ws in targets if self._cancel_gen.get(ws, 0) != gens[ws]]
+                    if gone:
+                        targets = [ws for ws in targets if ws not in gone]
+                        fut = asyncio.run_coroutine_threadsafe(
+                            self._send_to(gone, protocol.encode("file_cancel", {"name": filename})), loop)
+                        try:
+                            fut.result(timeout=10)
+                        except Exception:
+                            pass
+                    return not targets
+
                 # 1. START SIGNAL (JSON text) on the same path as the chunks, so it can't be overtaken.
-                start_payload = json.dumps({"filename": filename, "size": file_size})
-                send(json.dumps({"type": "file_start", "payload": start_payload}))
+                start = {"filename": filename, "size": file_size}
+                if batch and batch[1] > 1:
+                    start.update(batch_index=batch[0], batch_count=batch[1])
+                send(json.dumps({"type": "file_start", "payload": json.dumps(start)}))
 
                 # 2. RAW DATA (binary, 0x01 header)
                 total_sent = 0
@@ -1121,6 +1691,10 @@ class UnifiedRemoteServer:
                         chunk = f.read(64 * 1024)
                         if not chunk:
                             break
+                        if drop_cancelled():
+                            self._report_transfer("out", filename, total_sent, file_size, done=True, failed=True)
+                            self._put("log", f"⛔ {filename}: cancelled on the phone")
+                            return False
                         send(b'\x01' + chunk)
                         total_sent += len(chunk)
                         now = time.time()
@@ -1132,12 +1706,14 @@ class UnifiedRemoteServer:
                 send(b'\x02')
                 self._report_transfer("out", filename, total_sent, file_size, done=True)
                 self._put("log", f"✅ Sent {filename} ({total_sent} bytes)")
+                return True
 
             except Exception as e:
                 self._report_transfer("out", os.path.basename(str(file_path)), 0, 0, done=True, failed=True)
                 self._put("log", f"❌ File send error: {e}")
                 import traceback
                 traceback.print_exc()
+                return False
 
     def _report_transfer(self, direction, name, done_bytes, total, done=False, failed=False):
         """Progress for the Sharing tab. total is 0 when unknown (older phone apps)."""
@@ -1178,14 +1754,20 @@ class UnifiedRemoteServer:
 
             entry = self._incoming_files.get(key)
             if entry is None and (b64_data or is_end):
-                SAVE_DIR.mkdir(parents=True, exist_ok=True)
-                part = unique_path(SAVE_DIR, filename + ".part")
+                # The phone's file browser can upload straight into the folder it's showing.
+                dest = data.get("dest")
+                target_dir = SAVE_DIR
+                if dest and self.allow_file_browsing and os.path.isdir(str(dest)) \
+                        and filebrowser.is_allowed(str(dest), self.browse_folders):
+                    target_dir = Path(str(dest))
+                target_dir.mkdir(parents=True, exist_ok=True)
+                part = unique_path(target_dir, filename + ".part")
                 try:
                     total = int(data.get("size") or 0)   # new apps send the file size
                 except (TypeError, ValueError):
                     total = 0
                 entry = {"part": part, "fh": open(part, "wb"), "name": filename, "ws": websocket,
-                         "bytes": 0, "total": total, "reported": 0.0}
+                         "bytes": 0, "total": total, "reported": 0.0, "dir": target_dir}
                 self._incoming_files[key] = entry
 
             if b64_data:
@@ -1201,7 +1783,7 @@ class UnifiedRemoteServer:
                 self._incoming_files.pop(key, None)
                 entry["fh"].close()
                 self._report_transfer("in", filename, entry["bytes"], entry["total"] or entry["bytes"], done=True)
-                final_path = unique_path(SAVE_DIR, filename)
+                final_path = unique_path(entry.get("dir", SAVE_DIR), filename)
                 os.replace(entry["part"], final_path)
                 self._put("log", f"📂 Saved: {final_path.name}")
                 self._put("log", f"📍 Path: {final_path.absolute()}")
@@ -1762,6 +2344,13 @@ class UnifiedRemoteServer:
                 self._display_height = int(request.get('height', 720))
                 self._display_fps = int(request.get('fps', 30))
                 self._display_quality = int(request.get('quality', 35))
+                try:   # the phone's screen, so a virtual monitor can have the same shape
+                    pw, ph = int(request.get('phone_width', 0)), int(request.get('phone_height', 0))
+                    self._phone_screen = (max(pw, ph), min(pw, ph)) if pw > 0 and ph > 0 else None
+                except (TypeError, ValueError):
+                    self._phone_screen = None
+                # The virtual monitor's size: "auto" (the phone's shape) or "WxH" picked on the phone.
+                self._monitor_size = self._parse_monitor_size(request.get('monitor_size'))
 
                 # Default to [0] (Primary) if missing
                 indices = request.get('monitor_indices', [0])
@@ -1816,6 +2405,16 @@ class UnifiedRemoteServer:
             why = "no working H.264 encoder" if self._h264_broken else media.unavailable_reason() or "H.264 unavailable"
             self._put("log", f"🖥️ Second screen uses JPEG ({why})")
 
+    @staticmethod
+    def _parse_monitor_size(value):
+        try:
+            w, h = (int(v) for v in str(value).lower().replace("×", "x").split("x"))
+        except (TypeError, ValueError):
+            return None
+        if 640 <= w <= 7680 and 480 <= h <= 4320:
+            return (w, h)
+        return None
+
     def _ensure_requested_monitors(self):
         """If the phone asked for a monitor that doesn't exist, add a virtual one (Windows:
         usbmmidd driver, Linux: xrandr), so the phone becomes a real extra screen."""
@@ -1833,12 +2432,16 @@ class UnifiedRemoteServer:
                 self._put("log", f"🖥️ Monitor {needed} requested but only {count} found — adding a virtual one")
                 with self._virtual_lock:
                     self.platform.ensure_display_count(needed, width=self._display_width,
-                                                       height=self._display_height)
+                                                       height=self._display_height,
+                                                       phone_size=getattr(self, "_phone_screen", None),
+                                                       exact_size=getattr(self, "_monitor_size", None))
             elif self.platform.virtual_displays_added:
                 # Already there (e.g. the phone reconnected): just match the resolution.
                 with self._virtual_lock:
                     self.platform.ensure_display_count(needed, width=self._display_width,
-                                                       height=self._display_height)
+                                                       height=self._display_height,
+                                                       phone_size=getattr(self, "_phone_screen", None),
+                                                       exact_size=getattr(self, "_monitor_size", None))
         except Exception as e:
             self._put("log", f"⚠️ Monitor check failed: {e}")
 
@@ -1922,6 +2525,10 @@ class UnifiedRemoteServer:
                 self._schedule_virtual_cleanup()
         self._display_codecs.pop(websocket, None)
         self._audio_codecs.pop(websocket, None)
+        for key, owner in list(self._notif_owner.items()):
+            if owner is websocket:
+                self._notif_owner.pop(key, None)
+        self._cancel_gen.pop(websocket, None)
         if websocket in self._media_clients:
             self._media_subscribe(websocket, False)
         if websocket in self._audio_clients:
@@ -2630,6 +3237,10 @@ class UnifiedRemoteServer:
         self._video_event.set()
         self._input_executor.shutdown(wait=False)
         self._control_executor.shutdown(wait=False)
+        self._thumb_executor.shutdown(wait=False, cancel_futures=True)
+        if self._stream_server is not None:
+            self._stream_server.stop()
+            self._stream_server = None
 
         # 5. STOP WEBSOCKET SERVER
         if not (self._thread and self._thread.is_alive() and self._loop):

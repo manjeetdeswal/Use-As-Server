@@ -6,3 +6,7 @@ __pycache__/
 *.pyc
 # Local backups made while editing
 _backup_*/
+Final_Build/drivers/VBCABLE/
+Final_Build/drivers/VirtualAudioDriver/
+Final_Build/drivers/devcon.exe
+Final_Build/usbmmidd_v2.zip

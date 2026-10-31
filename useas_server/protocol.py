@@ -69,6 +69,23 @@ PAYLOAD_SHAPES = {
     "clipboard_text": OBJECT,   # {"text": "..."}; a bare string is accepted too
     "media_subscribe": OBJECT,  # {"on": true} -> "now_playing" messages + 0x06 cover art
     "media_control": OBJECT,    # {"action": "play_pause"|"next"|"previous"|"seek", "position": s}
+    "pc_power": OBJECT,         # {"action": "lock"|"sleep"|"screen_off"|"restart"|"shutdown"|"cancel_shutdown"}
+    "pc_volume": OBJECT,        # {"action": "get"|"set"|"mute", "level": 0-100} -> "pc_status"
+    "apps_list": OBJECT,        # {"launchers": bool} -> "apps" {"windows": [...], "launchers": [...]}
+    "app_action": OBJECT,       # {"action": "focus"|"close"|"launch", "id": ...}
+    "fs_list": OBJECT,          # {"path": "" = roots, "req": n} -> "fs_listing"
+    "pc_brightness": OBJECT,    # {"action": get|set, "level"} -> "pc_brightness" {"level"}
+    "pc_stats": OBJECT,         # {} -> "pc_stats" {cpu, ram_used, ram_total, gpu, disks, battery, net_up, ...}
+    "fs_stream": OBJECT,        # {"req", "paths"} -> "fs_stream_info" {req, port, items: [{path, token}]}
+    "deck_run": OBJECT,         # {"id", "kind": url|app|open|command|type, "target", "label"} -> "deck_result"
+    "phone_call": OBJECT,       # {"key", "state": ringing|ongoing, "name", "text", "app", "icon", "can_*"}
+    "phone_call_end": OBJECT,   # {"key"}
+    "fs_action": OBJECT,        # {"action": open|reveal|rename|trash, "path"/"paths", "name"} -> "fs_action_result"
+    "fs_cancel": OBJECT,        # {} -> stop that phone's downloads (file_cancel)
+    "thumb_request": OBJECT,    # {"kind": file|app|window, "id": ..., "size": px} -> "thumb"
+    "fs_download": OBJECT,      # {"path": ...} -> normal file transfer, to that phone only
+    "phone_notification": OBJECT,          # {"key", "app", "title", "text", "can_reply", "icon"}
+    "phone_notification_removed": OBJECT,  # {"key"}
 }
 
 

@@ -22,9 +22,9 @@ pip install customtkinter pillow pystray websockets pyautogui pyperclip mss nump
 
 Plus, per OS:
 
-* **Windows:** `pip install pywin32 vgamepad pyaudiowpatch screen-brightness-control winrt-Windows.Media.Control winrt-Windows.Storage.Streams winrt-Windows.Foundation`
+* **Windows:** `pip install pywin32 vgamepad pyaudiowpatch screen-brightness-control winrt-Windows.Media.Control winrt-Windows.Storage.Streams winrt-Windows.Foundation pycaw`
   (ViGEmBus driver for the gamepad, VB-CABLE for the phone mic)
-* **Linux:** `pip install evdev screen-brightness-control`, and `sudo apt install xdotool pulseaudio-utils`.
+* **Linux:** `pip install evdev screen-brightness-control`, and `sudo apt install xdotool pulseaudio-utils playerctl xclip wmctrl`.
   Gamepad: `sudo chmod 666 /dev/uinput` (or a udev rule).
   Virtual camera: `sudo modprobe v4l2loopback devices=1 video_nr=10 exclusive_caps=1`.
 * **macOS:** `pip install pynput pyobjc-framework-Quartz pyobjc-framework-Cocoa`, and install

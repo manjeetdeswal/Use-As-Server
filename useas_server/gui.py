@@ -165,6 +165,41 @@ class SettingsDialog(ctk.CTkToplevel):
             toggle_row(sec2, "Send to phone in right-click menu", self.platform.send_to_label, self.var_send_to)
         ctk.CTkFrame(sec2, height=8, fg_color="transparent").pack()
 
+        # Phone access
+        sec_pa = section(scroll, "  PHONE ACCESS")
+        self.var_file_browsing = ctk.BooleanVar(value=prefs.get("allow_file_browsing", True))
+        toggle_row(sec_pa, "Browse this PC's files", "The phone's PC tab can list and download files",
+                   self.var_file_browsing)
+        self.var_file_changes = ctk.BooleanVar(value=prefs.get("allow_file_changes", True))
+        toggle_row(sec_pa, "Rename and delete files", "Deleted files go to the Recycle Bin, never gone for good",
+                   self.var_file_changes)
+
+        # Which folders the phone may browse (empty = the whole PC)
+        self._browse_folders = [str(f) for f in prefs.get("browse_folders", []) if f]
+        ctk.CTkLabel(sec_pa, text="Folders the phone can browse", font=("Segoe UI", 13),
+                     text_color="#e0e0e0", anchor="w").pack(anchor="w", padx=16, pady=(8, 0))
+        ctk.CTkLabel(sec_pa, text="None added = the whole PC. Add folders to share only those.",
+                     font=("Segoe UI", 10), text_color="#555", anchor="w").pack(anchor="w", padx=16)
+        self._folders_box = ctk.CTkFrame(sec_pa, fg_color="#151515", corner_radius=8)
+        self._folders_box.pack(fill="x", padx=16, pady=(6, 4))
+        ctk.CTkButton(sec_pa, text="+  Add folder", height=30, font=("Segoe UI", 12),
+                      fg_color="#1e1e1e", hover_color="#2a2a2a", text_color="#00e676",
+                      command=self._add_browse_folder).pack(anchor="w", padx=16, pady=(2, 6))
+        self._render_browse_folders()
+        self.var_power_control = ctk.BooleanVar(value=prefs.get("allow_power_control", True))
+        toggle_row(sec_pa, "Lock, sleep and shut down", "From the phone's PC tab (always asks first)",
+                   self.var_power_control)
+        self.var_notif_popups = ctk.BooleanVar(value=prefs.get("notification_popups", True))
+        toggle_row(sec_pa, "Pop up phone notifications", "Small window in the corner, with quick reply",
+                   self.var_notif_popups)
+        self.var_call_popups = ctk.BooleanVar(value=prefs.get("call_popups", True))
+        toggle_row(sec_pa, "Pop up phone calls", "Who's calling, with Decline and Answer",
+                   self.var_call_popups)
+        self.var_deck_commands = ctk.BooleanVar(value=prefs.get("allow_deck_commands", True))
+        toggle_row(sec_pa, "Custom buttons can run programs", "The phone's Deck: open files, run commands",
+                   self.var_deck_commands)
+        ctk.CTkFrame(sec_pa, height=8, fg_color="transparent").pack()
+
         # Second screen
         self.var_virtual_display = ctk.BooleanVar(value=prefs.get("virtual_display", True))
         if "virtual_display" in self.platform.features:
@@ -221,6 +256,34 @@ class SettingsDialog(ctk.CTkToplevel):
                         height=48, corner_radius=0, command=self.save_and_close).pack(
             fill="x", padx=0, pady=0, side="bottom")
  
+    def _render_browse_folders(self):
+        for w in self._folders_box.winfo_children():
+            w.destroy()
+        if not self._browse_folders:
+            ctk.CTkLabel(self._folders_box, text="Whole PC (all drives)", font=("Segoe UI", 12),
+                         text_color="#888", anchor="w").pack(anchor="w", padx=10, pady=8)
+            return
+        for folder in self._browse_folders:
+            row = ctk.CTkFrame(self._folders_box, fg_color="transparent")
+            row.pack(fill="x", padx=6, pady=2)
+            ctk.CTkLabel(row, text="📁 " + folder, font=("Segoe UI", 11), text_color="#e0e0e0",
+                         anchor="w").pack(side="left", fill="x", expand=True, padx=4)
+            ctk.CTkButton(row, text="✕", width=28, height=24, fg_color="#1e1e1e", hover_color="#3a1a1a",
+                          text_color="#ff6b6b",
+                          command=lambda f=folder: self._remove_browse_folder(f)).pack(side="right")
+
+    def _add_browse_folder(self):
+        folder = filedialog.askdirectory(parent=self, title="Share a folder with the phone")
+        if folder:
+            folder = os.path.normpath(folder)
+            if folder not in self._browse_folders:
+                self._browse_folders.append(folder)
+            self._render_browse_folders()
+
+    def _remove_browse_folder(self, folder):
+        self._browse_folders = [f for f in self._browse_folders if f != folder]
+        self._render_browse_folders()
+
     def save_and_close(self):
         try:
             port = int(self.ent_port.get())
@@ -235,6 +298,13 @@ class SettingsDialog(ctk.CTkToplevel):
             "gaming_mode": self.var_gaming_mode.get(),
             "send_to_menu": self.var_send_to.get(),
             "virtual_display": self.var_virtual_display.get(),
+            "allow_file_browsing": self.var_file_browsing.get(),
+            "browse_folders": list(self._browse_folders),
+            "allow_file_changes": self.var_file_changes.get(),
+            "allow_power_control": self.var_power_control.get(),
+            "notification_popups": self.var_notif_popups.get(),
+            "call_popups": self.var_call_popups.get(),
+            "allow_deck_commands": self.var_deck_commands.get(),
             "port": port,
             "ui_scale": float(self.opt_scale.get()),
             "password": self.ent_password.get().strip(),
@@ -506,6 +576,7 @@ class ServerGUI:
             ("dashboard", "⬛  Dashboard"),
             ("camera",    "◉  Camera Studio"),
             ("sharing",   "⇆  Sharing"),
+            ("notifications", "🔔  Notifications"),
             ("setup",     "✔  Setup check"),
             ("help",      "?  How to use"),
         ]
@@ -587,6 +658,7 @@ class ServerGUI:
             ("dashboard", self._build_dashboard),
             ("camera",    self._build_camera),
             ("sharing",   self._build_sharing),
+            ("notifications", self._build_notifications),
             ("setup",     self._build_setup),
             ("help",      self._build_help),
         ]:
@@ -717,6 +789,169 @@ class ServerGUI:
                 self.update_queue.put(("log", f"❌ {row.title}: {e}"))
             self.run_health_checks()       # the queue re-renders the list
         threading.Thread(target=work, daemon=True, name="health-fix").start()
+
+    # ── Phone notifications ────────────────────────────────
+    def _build_notifications(self, parent):
+        scroll = ctk.CTkScrollableFrame(parent, fg_color=self.C_BG,
+                                          scrollbar_button_color="#1e1e1e",
+                                          scrollbar_button_hover_color=self.C_ACCENT)
+        scroll.grid(row=0, column=0, sticky="nsew", padx=24, pady=20)
+        head = ctk.CTkFrame(scroll, fg_color="transparent")
+        head.pack(fill="x")
+        ctk.CTkLabel(head, text="PHONE NOTIFICATIONS", font=("Courier New", 13, "bold"),
+                     text_color=self.C_DIM).pack(side="left")
+        self._small_btn(head, "Clear", self._clear_notifications).pack(side="right")
+        ctk.CTkLabel(scroll, text="Notifications from your phone, with quick reply for messaging apps. "
+                                  "Turn it on in the phone app: PC tab › Show phone notifications on PC.",
+                     font=("Segoe UI", 13), text_color=self.C_TEXT2, anchor="w", justify="left",
+                     wraplength=700).pack(anchor="w", pady=(2, 0))
+        ctk.CTkFrame(scroll, height=1, fg_color=self.C_BORDER).pack(fill="x", pady=(8, 16))
+        self.notif_list = ctk.CTkFrame(scroll, fg_color="transparent")
+        self.notif_list.pack(fill="x")
+        self._notifications = []        # newest first: dicts from the phone
+        self._notif_popups = {}
+        self._render_notifications()
+
+    def _clear_notifications(self):
+        self._notifications.clear()
+        self._render_notifications()
+
+    def _on_phone_notification(self, n):
+        key = str(n.get("key", ""))
+        self._notifications = [x for x in self._notifications if x.get("key") != key]
+        n = dict(n, received=time.strftime("%H:%M"))
+        self._notifications.insert(0, n)
+        del self._notifications[50:]
+        self._render_notifications()
+        if self.prefs.get("notification_popups", True) and not n.get("silent"):
+            self._show_notification_popup(n)
+
+    def _remove_notification(self, key):
+        self._notifications = [x for x in self._notifications if x.get("key") != key]
+        self._render_notifications()
+        popup = self._notif_popups.pop(key, None)
+        if popup is not None:
+            try:
+                popup.destroy()
+            except Exception:
+                pass
+
+    def _notif_icon(self, n, size=28):
+        data = n.get("icon")
+        if not data:
+            return None
+        try:
+            import base64
+            import io
+            from PIL import Image
+            img = Image.open(io.BytesIO(base64.b64decode(data))).convert("RGBA")
+            return ctk.CTkImage(light_image=img, dark_image=img, size=(size, size))
+        except Exception:
+            return None
+
+    def _render_notifications(self):
+        if not hasattr(self, "notif_list"):
+            return
+        for child in self.notif_list.winfo_children():
+            child.destroy()
+        if not self._notifications:
+            ctk.CTkLabel(self.notif_list, text="No notifications yet.", font=("Segoe UI", 13),
+                         text_color="#555").pack(pady=24)
+            return
+        for n in self._notifications:
+            self._notification_card(self.notif_list, n).pack(fill="x", pady=(0, 8))
+
+    def _notification_card(self, parent, n, popup=None):
+        key = str(n.get("key", ""))
+        card = self._card(parent)
+        top = ctk.CTkFrame(card, fg_color="transparent")
+        top.pack(fill="x", padx=14, pady=(12, 0))
+        icon = self._notif_icon(n)
+        ctk.CTkLabel(top, text="" if icon else "🔔", image=icon, width=28).pack(side="left")
+        ctk.CTkLabel(top, text=str(n.get("app", "Phone")), font=("Segoe UI", 12, "bold"),
+                     text_color=self.C_ACCENT).pack(side="left", padx=(8, 0))
+        ctk.CTkLabel(top, text=n.get("received", ""), font=("Segoe UI", 11),
+                     text_color=self.C_TEXT2).pack(side="right")
+        if n.get("title"):
+            ctk.CTkLabel(card, text=str(n["title"])[:120], font=("Segoe UI", 14, "bold"), text_color=self.C_TEXT,
+                         anchor="w", justify="left", wraplength=560 if popup is None else 300).pack(
+                anchor="w", padx=14, pady=(6, 0))
+        if n.get("text"):
+            ctk.CTkLabel(card, text=str(n["text"])[:500], font=("Segoe UI", 12), text_color=self.C_TEXT,
+                         anchor="w", justify="left", wraplength=560 if popup is None else 300).pack(
+                anchor="w", padx=14, pady=(2, 0))
+        row = ctk.CTkFrame(card, fg_color="transparent")
+        row.pack(fill="x", padx=14, pady=(8, 12))
+
+        def dismiss():
+            if self.server:
+                self.server.dismiss_notification(key)
+            self._remove_notification(key)
+
+        if n.get("can_reply"):
+            entry = ctk.CTkEntry(row, placeholder_text="Reply…", height=32, font=("Segoe UI", 12),
+                                 fg_color="#0d0d0d", border_color=self.C_BORDER)
+            entry.pack(side="left", fill="x", expand=True)
+
+            def send(_event=None):
+                text = entry.get().strip()
+                if not text or not self.server:
+                    return
+                if self.server.reply_to_notification(key, text):
+                    self.log(f"💬 Replied to {n.get('title') or n.get('app')}")
+                    entry.delete(0, "end")
+                    if popup is not None:
+                        popup.destroy()
+                        self._notif_popups.pop(key, None)
+            entry.bind("<Return>", send)
+            if popup is not None:
+                entry.bind("<FocusIn>", lambda e: setattr(popup, "_keep", True))
+            self._small_btn(row, "Send", send, accent=True).pack(side="left", padx=(8, 0))
+        ctk.CTkButton(row, text="Dismiss", width=80, height=32, corner_radius=8, font=("Segoe UI", 12),
+                      fg_color="transparent", hover_color="#1e1e1e", text_color=self.C_TEXT2,
+                      border_width=1, border_color=self.C_BORDER, command=dismiss).pack(side="right")
+        return card
+
+    def _show_notification_popup(self, n):
+        """Small always-on-top card in the bottom-right corner for ~8 s (longer while replying)."""
+        key = str(n.get("key", ""))
+        old = self._notif_popups.pop(key, None)
+        if old is not None:
+            try:
+                old.destroy()
+            except Exception:
+                pass
+        # Keep at most three on screen.
+        while len(self._notif_popups) >= 3:
+            _k, p = next(iter(self._notif_popups.items()))
+            self._notif_popups.pop(_k, None)
+            try:
+                p.destroy()
+            except Exception:
+                pass
+        popup = ctk.CTkToplevel(self.root)
+        popup.overrideredirect(True)
+        popup.attributes("-topmost", True)
+        popup.configure(fg_color=self.C_BG)
+        popup._keep = False
+        self._notification_card(popup, n, popup=popup).pack(fill="both", expand=True, padx=1, pady=1)
+        popup.update_idletasks()
+        w, h = 380, popup.winfo_reqheight()
+        idx = len(self._notif_popups)
+        x = popup.winfo_screenwidth() - w - 16
+        y = popup.winfo_screenheight() - (h + 12) * (idx + 1) - 56
+        popup.geometry(f"{w}x{h}+{x}+{max(0, y)}")
+        self._notif_popups[key] = popup
+
+        def expire():
+            if not popup.winfo_exists():
+                return
+            if getattr(popup, "_keep", False):
+                popup.after(4000, expire)      # still typing a reply
+                return
+            self._notif_popups.pop(key, None)
+            popup.destroy()
+        popup.after(8000, expire)
 
     # ── How to use ─────────────────────────────────────────
     def _build_help(self, parent):
@@ -1075,6 +1310,16 @@ class ServerGUI:
         self._small_btn(actions, "🖼  Send copied image / files", self.send_rich_clipboard).pack(
             side="left", padx=(8, 0))
 
+        hist_head = ctk.CTkFrame(clip_card, fg_color="transparent")
+        hist_head.pack(fill="x", padx=18, pady=(0, 6))
+        ctk.CTkLabel(hist_head, text="HISTORY", font=("Courier New", 10, "bold"),
+                     text_color=self.C_DIM).pack(side="left")
+        self._small_btn(hist_head, "Clear", self._clear_clip_history).pack(side="right")
+        self.clip_hist_list = ctk.CTkScrollableFrame(clip_card, fg_color="#0d0d0d", corner_radius=8, height=200,
+                                                     scrollbar_button_color="#1e1e1e")
+        self.clip_hist_list.pack(fill="x", padx=18, pady=(0, 18))
+        self._render_clip_history()
+
         # ─ Files ───────────────────────────────────────────
         ctk.CTkLabel(file_card, text="📁  Files", font=("Segoe UI", 16, "bold"),
                      text_color=self.C_TEXT).pack(anchor="w", padx=18, pady=(16, 2))
@@ -1153,6 +1398,140 @@ class ServerGUI:
             self._clip_hint.place(x=14, y=10)
         else:
             self._clip_hint.place_forget()
+
+    def _clear_clip_history(self):
+        if self.server:
+            self.server.clip_history.clear()
+        self._render_clip_history()
+
+    def _render_clip_history(self):
+        if not hasattr(self, "clip_hist_list"):
+            return
+        for child in self.clip_hist_list.winfo_children():
+            child.destroy()
+        items = list(self.server.clip_history) if self.server else []
+        if not items:
+            ctk.CTkLabel(self.clip_hist_list, text="Text you copy between the PC and the phone shows up here.",
+                         font=("Segoe UI", 12), text_color="#555").pack(padx=14, pady=16)
+            return
+        for item in items:
+            text = item["text"]
+            one_line = " ".join(text.split())
+            row = ctk.CTkFrame(self.clip_hist_list, fg_color="transparent")
+            row.pack(fill="x", padx=6, pady=3)
+            from_phone = item["source"] == "phone"
+            ctk.CTkLabel(row, text="⬇" if from_phone else "⬆", font=("Segoe UI", 13, "bold"),
+                         text_color=self.C_ACCENT if from_phone else "#64b5f6", width=18).pack(side="left")
+            ctk.CTkLabel(row, text=one_line if len(one_line) <= 52 else one_line[:50] + "…",
+                         font=("Segoe UI", 12), text_color=self.C_TEXT, anchor="w").pack(
+                side="left", padx=(6, 0), fill="x", expand=True)
+            ctk.CTkButton(row, text="Send", width=50, height=24, corner_radius=6, font=("Segoe UI", 11),
+                          fg_color="transparent", hover_color="#1e1e1e", text_color="#64b5f6",
+                          border_width=1, border_color="#1e3a5f",
+                          command=lambda t=text: self._clip_history_send(t)).pack(side="right", padx=(4, 0))
+            ctk.CTkButton(row, text="Copy", width=50, height=24, corner_radius=6, font=("Segoe UI", 11),
+                          fg_color="transparent", hover_color="#1e1e1e", text_color=self.C_ACCENT,
+                          border_width=1, border_color="#1f4d2e",
+                          command=lambda t=text: self._clip_history_copy(t)).pack(side="right")
+            ctk.CTkLabel(row, text=time.strftime("%H:%M", time.localtime(item["time"])), font=("Segoe UI", 10),
+                         text_color=self.C_TEXT2).pack(side="right", padx=6)
+
+    def _clip_history_copy(self, text):
+        try:
+            if self.server:
+                self.server._last_clip = text      # don't auto-sync it straight back
+            pyperclip.copy(text)
+            self.log("📋 Copied from history")
+        except Exception as e:
+            self.log(f"⚠️ Clipboard error: {e}")
+
+    def _clip_history_send(self, text):
+        if self.server:
+            self.server.send_to_android("clipboard_text", text)
+            self.log("📋 Sent to the phone from history")
+
+    # ── phone calls ───────────────────────────────────────
+    def _on_phone_call(self, c):
+        key = str(c.get("key", ""))
+        who = c.get("name") or c.get("text") or "Unknown"
+        state = c.get("state", "ringing")
+        if state == "ringing" and key not in getattr(self, "_call_popups", {}):
+            self.log(f"📞 Incoming call: {who}")
+        if not self.prefs.get("call_popups", True):
+            return
+        self._show_call_popup(c)
+
+    def _end_phone_call(self, key):
+        popup = getattr(self, "_call_popups", {}).pop(key, None)
+        if popup is not None:
+            try:
+                popup.destroy()
+            except Exception:
+                pass
+
+    def _show_call_popup(self, c):
+        """Top-right card while the phone rings (Decline / Answer) or a call is going on (Hang up)."""
+        if not hasattr(self, "_call_popups"):
+            self._call_popups = {}
+        key = str(c.get("key", ""))
+        self._end_phone_call(key)
+        ringing = c.get("state", "ringing") == "ringing"
+        popup = ctk.CTkToplevel(self.root)
+        popup.overrideredirect(True)
+        popup.attributes("-topmost", True)
+        popup.configure(fg_color="#0f1a13" if ringing else self.C_BG)
+        card = ctk.CTkFrame(popup, fg_color="#111", corner_radius=14, border_width=2,
+                            border_color=self.C_ACCENT if ringing else self.C_BORDER)
+        card.pack(fill="both", expand=True, padx=1, pady=1)
+        top = ctk.CTkFrame(card, fg_color="transparent")
+        top.pack(fill="x", padx=16, pady=(14, 4))
+        icon = self._notif_icon(c, size=48)
+        ctk.CTkLabel(top, text="" if icon else "📞", image=icon, font=("Segoe UI", 30), width=52).pack(side="left")
+        info = ctk.CTkFrame(top, fg_color="transparent")
+        info.pack(side="left", fill="x", expand=True, padx=(12, 0))
+        ctk.CTkLabel(info, text=("Incoming call" if ringing else "On a call") + f"  ·  {c.get('app') or 'Phone'}",
+                     font=("Segoe UI", 11), text_color=self.C_ACCENT if ringing else self.C_TEXT2,
+                     anchor="w").pack(anchor="w")
+        ctk.CTkLabel(info, text=str(c.get("name") or "Unknown caller")[:40], font=("Segoe UI", 17, "bold"),
+                     text_color=self.C_TEXT, anchor="w").pack(anchor="w")
+        if c.get("text") and c.get("text") != c.get("name"):
+            ctk.CTkLabel(info, text=str(c["text"])[:60], font=("Segoe UI", 12), text_color=self.C_TEXT2,
+                         anchor="w").pack(anchor="w")
+        row = ctk.CTkFrame(card, fg_color="transparent")
+        row.pack(fill="x", padx=16, pady=(8, 14))
+
+        def act(action):
+            if self.server and self.server.call_action(key, action):
+                self.log({"decline": "📵 Call declined", "answer": "📞 Answered on the phone",
+                          "hangup": "📵 Call ended"}.get(action, action))
+            self._end_phone_call(key)
+
+        if ringing:
+            if c.get("can_decline", True):
+                ctk.CTkButton(row, text="Decline", height=38, corner_radius=19, font=("Segoe UI", 13, "bold"),
+                              fg_color="#d32f2f", hover_color="#b71c1c", text_color="#fff",
+                              command=lambda: act("decline")).pack(side="left", expand=True, fill="x", padx=(0, 6))
+            if c.get("can_answer", True):
+                ctk.CTkButton(row, text="Answer", height=38, corner_radius=19, font=("Segoe UI", 13, "bold"),
+                              fg_color="#2e7d32", hover_color="#1b5e20", text_color="#fff",
+                              command=lambda: act("answer")).pack(side="left", expand=True, fill="x", padx=(6, 0))
+        else:
+            if c.get("can_hangup", True):
+                ctk.CTkButton(row, text="Hang up", height=38, corner_radius=19, font=("Segoe UI", 13, "bold"),
+                              fg_color="#d32f2f", hover_color="#b71c1c", text_color="#fff",
+                              command=lambda: act("hangup")).pack(side="left", expand=True, fill="x")
+            ctk.CTkButton(row, text="Hide", width=70, height=38, corner_radius=19, font=("Segoe UI", 12),
+                          fg_color="transparent", hover_color="#1e1e1e", text_color=self.C_TEXT2,
+                          border_width=1, border_color=self.C_BORDER,
+                          command=lambda: self._end_phone_call(key)).pack(side="right", padx=(8, 0))
+        popup.update_idletasks()
+        w, h = 400, popup.winfo_reqheight()
+        x = popup.winfo_screenwidth() - w - 16
+        popup.geometry(f"{w}x{h}+{x}+16")
+        self._call_popups[key] = popup
+        if ringing:
+            # The phone says when the call ends; this is only a safety net.
+            popup.after(90_000, lambda: self._end_phone_call(key))
 
     def _add_recent(self, direction, name, path=None):
         """direction: "in" (from the phone) or "out" (to the phone)."""
@@ -1237,6 +1616,11 @@ class ServerGUI:
                                               require_password=require_password, update_queue=self.update_queue,
                                               pairing_token=self.prefs.get("pairing_token", ""))
             self.server.virtual_display_enabled = bool(self.prefs.get("virtual_display", True))
+            self.server.allow_file_browsing = bool(self.prefs.get("allow_file_browsing", True))
+            self.server.allow_power_control = bool(self.prefs.get("allow_power_control", True))
+            self.server.browse_folders = [str(f) for f in self.prefs.get("browse_folders", []) if f]
+            self.server.allow_file_changes = bool(self.prefs.get("allow_file_changes", True))
+            self.server.allow_deck_commands = bool(self.prefs.get("allow_deck_commands", True))
             self.server.start()
             for _ in range(20):
                 if self.server._loop and self.server._loop.is_running():
@@ -1548,6 +1932,21 @@ class ServerGUI:
 
                 elif kind == "health":
                     self._render_health(data)
+
+                elif kind == "phone_notification":
+                    self._on_phone_notification(data)
+
+                elif kind == "phone_call":
+                    self._on_phone_call(data)
+
+                elif kind == "phone_call_end":
+                    self._end_phone_call(data)
+
+                elif kind == "clip_history":
+                    self._render_clip_history()
+
+                elif kind == "phone_notification_removed":
+                    self._remove_notification(data)
  
                 elif kind == "server_ready":
                     self.is_running = True

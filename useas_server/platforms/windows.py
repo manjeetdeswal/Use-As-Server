@@ -495,11 +495,67 @@ class WindowsPlatform(Platform):
         except Exception:
             pass
 
-    def ensure_display_count(self, needed, width=None, height=None):
+    # The driver's 10th resolution slot ("9") is ours: set to the phone's shape (e.g. 2400x1080),
+    # so the picture fills the phone instead of a 16:9 box with bars at the sides.
+    _IDD_MONITORS_KEY = _IDD_SERVICE_KEY + r"\Parameters\Monitors"
+
+    @staticmethod
+    def phone_shaped_size(phone_size, height):
+        """(width, height) of a monitor with the phone's aspect ratio at the stream's height,
+        or None when the phone is already ~16:9 (the standard sizes fit it)."""
+        if not phone_size or not height:
+            return None
+        pw, ph = max(phone_size), min(phone_size)
+        if ph <= 0:
+            return None
+        aspect = pw / ph
+        if abs(aspect - 16 / 9) < 0.06 or not 1.2 <= aspect <= 3.0:
+            return None
+        h = int(height)
+        w = int(round(h * aspect / 8.0)) * 8
+        return (w, h)
+
+    def _ensure_custom_mode(self, size):
+        """Write slot 9 = "W,H" if it isn't already. True if it changed (needs a re-add)."""
+        import winreg
+        value = f"{size[0]},{size[1]}"
+        try:
+            with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, self._IDD_MONITORS_KEY) as k:
+                if winreg.QueryValueEx(k, "9")[0] == value:
+                    return False
+        except OSError:
+            pass
+        if self.is_admin():
+            try:
+                with winreg.CreateKeyEx(winreg.HKEY_LOCAL_MACHINE, self._IDD_MONITORS_KEY, 0,
+                                        winreg.KEY_SET_VALUE) as k:
+                    winreg.SetValueEx(k, "9", 0, winreg.REG_SZ, value)
+                return True
+            except OSError as e:
+                self._log(f"⚠️ Couldn't add the phone-shaped resolution: {e}")
+                return False
+        self._log(f"🔐 Adding a {value.replace(',', 'x')} resolution for the virtual monitor — "
+                  f"allow it in the Windows prompt")
+        params = (f'add "HKLM\\{self._IDD_MONITORS_KEY}" /v 9 /t REG_SZ /d "{value}" /f')
+        code = self._run_elevated(os.path.join(os.environ.get("SystemRoot", r"C:\Windows"), "System32", "reg.exe"),
+                                  params, os.environ.get("SystemRoot", r"C:\Windows"))
+        return code == 0
+
+    def ensure_display_count(self, needed, width=None, height=None, phone_size=None, exact_size=None):
+        """exact_size: a resolution picked on the phone; otherwise the phone's shape."""
         have = self._monitor_count()
+        if exact_size and self._idd_installed():
+            custom = (int(exact_size[0]), int(exact_size[1]))
+        else:
+            custom = self.phone_shaped_size(phone_size, height) if self._idd_installed() else None
+        if custom is not None and self._ensure_custom_mode(custom) and self.virtual_displays_added and have >= needed:
+            # The driver reads its resolution list when a monitor is added: re-add ours.
+            self._log("🖥️ Re-adding the virtual monitor with the new resolution…")
+            self.remove_virtual_displays()
+            have = self._monitor_count()
         if have >= needed:
             if self.virtual_displays_added and width and height:
-                self._set_virtual_mode(width, height)
+                self._set_virtual_mode(*(custom or (width, height)))
             return True
         exe, _ = self._devinst()
         if exe is None:
@@ -543,7 +599,7 @@ class WindowsPlatform(Platform):
                       else "❌ The virtual monitor didn't appear")
             return False
         if width and height:
-            self._set_virtual_mode(width, height)
+            self._set_virtual_mode(*(custom or (width, height)))
         time.sleep(1.0)    # let the desktop settle before capturing it
         self._log("✅ Virtual monitor ready — it's in Settings › Display like a real screen; "
                   "drag windows onto it")

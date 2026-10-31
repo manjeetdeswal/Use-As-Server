@@ -320,7 +320,7 @@ class LinuxPlatform(Platform):
             self._log(f"⚠️ Couldn't set the clipboard image: {e}")
             return False
 
-    def ensure_display_count(self, needed, width=None, height=None):
+    def ensure_display_count(self, needed, width=None, height=None, phone_size=None, exact_size=None):
         """The xrandr 'HDMI hack' from the old Linux server: add a virtual 1920x1080
         output to the right of the primary screen."""
         if which("xrandr") is None:

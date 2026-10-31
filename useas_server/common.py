@@ -64,6 +64,13 @@ DEFAULT_PREFS = {
     "password_enabled": False,
     "clipboard_autosync": False,
     "virtual_display": True,
+    "allow_file_browsing": True,
+    "allow_file_changes": True,
+    "allow_deck_commands": True,   # the phone's custom buttons may run programs and commands
+    "call_popups": True,           # incoming phone calls pop up on the PC    # the phone may rename files and move them to the Recycle Bin
+    "browse_folders": [],          # folders the phone may browse; empty = the whole PC
+    "allow_power_control": True,
+    "notification_popups": True,
 }
 
 

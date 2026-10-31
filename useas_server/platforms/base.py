@@ -371,7 +371,7 @@ class Platform:
     def vcam_help(self):
         return "Install OBS Studio and start its Virtual Camera once."
 
-    def ensure_display_count(self, needed, width=None, height=None):
+    def ensure_display_count(self, needed, width=None, height=None, phone_size=None, exact_size=None):
         """Try to provide at least `needed` monitors (virtual display). True if it did.
         width/height: the size the phone streams at, a hint for the new monitor's resolution."""
         return False

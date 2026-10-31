@@ -305,6 +305,7 @@ def _windows_checks(platform, server):
 
     rows.append(_pip_check("win32clipboard", "pywin32", "Images on the clipboard, virtual monitor resolution",
                            ["pywin32"]))
+    rows.append(_pip_check("pycaw", "pycaw", "PC volume slider on the phone", ["pycaw"], optional=True))
 
     admin = platform.is_admin()
     rows.append(Check("Admin rights", "Mouse/keyboard in apps running as administrator (some games, Task Manager)",
@@ -341,6 +342,8 @@ def _linux_checks(platform, server):
     clip = _which("xclip") or _which("wl-copy")
     rows.append(Check("Clipboard tools", "Images and copied files on the clipboard", OK if clip else WARN,
                       "Installed" if clip else "sudo apt install xclip (or wl-clipboard on Wayland)", optional=True))
+    rows.append(Check("wmctrl", "Switch between windows from the phone", OK if _which("wmctrl") else WARN,
+                      "Installed" if _which("wmctrl") else "sudo apt install wmctrl", optional=True))
     rows.append(Check("xrandr", "Phone as an extra screen", OK if _which("xrandr") else WARN,
                       "Installed" if _which("xrandr") else "sudo apt install x11-xserver-utils", optional=True))
     return rows

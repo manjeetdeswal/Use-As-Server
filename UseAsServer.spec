@@ -30,7 +30,7 @@ hiddenimports = ['useas_server.platforms.windows' if WINDOWS else
 #   winrt / winsdk: song title and cover for the phone (Windows)
 packages = ['customtkinter', 'mediapipe', 'pyvirtualcam', 'tkinterdnd2', 'qrcode', 'av']
 if WINDOWS:
-    packages += ['vgamepad', 'pyaudiowpatch', 'winrt', 'winsdk']
+    packages += ['vgamepad', 'pyaudiowpatch', 'winrt', 'winsdk', 'pycaw', 'comtypes']
 elif MAC:
     packages += ['pynput']
 else:

@@ -7,3 +7,4 @@ screen-brightness-control
 winrt-Windows.Media.Control
 winrt-Windows.Storage.Streams
 winrt-Windows.Foundation
+pycaw
