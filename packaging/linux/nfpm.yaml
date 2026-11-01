@@ -1,0 +1,69 @@
+# .deb (Ubuntu, Mint, Debian) and .rpm (Fedora) packages of the PyInstaller Linux build.
+# Built by .github/workflows/build.yml with nfpm (https://nfpm.goreleaser.com), run from the
+# repository root after PyInstaller and after making packaging/linux/icon-256.png:
+#   VERSION=2.1.1 nfpm pkg --packager deb --config packaging/linux/nfpm.yaml --target upload/
+#
+# The package name matches the old 1.5 packages, so installing this upgrades them
+# (postinstall.sh removes what the old one left behind).
+name: use-as-server
+arch: amd64
+platform: linux
+version: ${VERSION}
+release: 1
+section: utils
+priority: optional
+maintainer: Manjeet Deswal <manjeetdeswal421@gmail.com>
+homepage: https://manjeetdeswal.github.io/Use-As-Server/
+license: MIT
+description: |-
+  Use your Android phone as a touchpad, keyboard, gamepad, webcam, microphone,
+  speaker and second screen for this PC. Needs the Use As app on the phone.
+
+contents:
+  - src: ./dist/UseAsServer
+    dst: /usr/lib/use-as-server/UseAsServer
+    file_info:
+      mode: 0755
+  - src: /usr/lib/use-as-server/UseAsServer
+    dst: /usr/bin/use-as-server
+    type: symlink
+  - src: /usr/lib/use-as-server/UseAsServer
+    dst: /usr/bin/useas                # the 1.5 package's command keeps working
+    type: symlink
+  - src: ./packaging/linux/use-as-server.desktop
+    dst: /usr/share/applications/use-as-server.desktop
+  - src: ./packaging/linux/icon-256.png
+    dst: /usr/share/icons/hicolor/256x256/apps/use-as-server.png
+
+scripts:
+  postinstall: ./packaging/linux/postinstall.sh
+  postremove: ./packaging/linux/postremove.sh
+
+overrides:
+  deb:
+    depends:
+      - xdotool
+      - pulseaudio-utils       # pactl (works with PipeWire too)
+      - playerctl
+      - xclip
+      - wmctrl
+      - x11-xserver-utils      # xrandr, xset
+      - libxft2
+      - libfontconfig1
+      - libfreetype6
+    recommends:
+      - v4l2loopback-dkms      # webcam
+  rpm:
+    depends:
+      - xdotool
+      - pulseaudio-utils
+      - playerctl
+      - xclip
+      - wmctrl
+      - xrandr
+      - xset
+      - libXft
+      - fontconfig
+      - freetype
+    recommends:
+      - v4l2loopback           # webcam (from RPM Fusion; skipped if not available)

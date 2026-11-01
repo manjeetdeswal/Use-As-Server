@@ -4,6 +4,7 @@
 #  - Actions tab › "Build Use As Server" › Run workflow. You choose:
 #      version    e.g. 2.1  (empty = APP_VERSION in useas_server/common.py)
 #      platforms  all / windows / linux / macos
+#                 (Linux = .tar.gz, .deb, .rpm, and the Flatpak below)
 #      flatpak    also make a .flatpak (needs Linux); xdotool, xclip, wmctrl, playerctl and
 #                 pactl are built into it (packaging/flatpak/build-tools.sh)
 #      release    publish the files as GitHub release v<version>; off = files only,
@@ -181,6 +182,27 @@ jobs:
           mkdir -p upload
           chmod +x dist/UseAsServer
           tar -czf "upload/UseAsServer_v${VERSION}_linux_x86_64.tar.gz" -C dist UseAsServer
+
+      # .deb (Ubuntu, Mint, Debian) and .rpm (Fedora): same program, plus dependencies and
+      # the gamepad/webcam setup. See packaging/linux/nfpm.yaml.
+      - name: .deb and .rpm (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          curl -sSLo nfpm.deb https://github.com/goreleaser/nfpm/releases/download/v2.46.3/nfpm_2.46.3_amd64.deb
+          echo "d6417f99d5fa32bba7a4e007084615d3897651498c2e443118c26b9ec3b698a8  nfpm.deb" | sha256sum -c -
+          sudo dpkg -i nfpm.deb
+          python -c "from PIL import Image; Image.open('icon.png').convert('RGBA').resize((256, 256), Image.LANCZOS).save('packaging/linux/icon-256.png')"
+          nfpm pkg --packager deb --config packaging/linux/nfpm.yaml --target "upload/UseAsServer_v${VERSION}_linux_amd64.deb"
+          nfpm pkg --packager rpm --config packaging/linux/nfpm.yaml --target "upload/UseAsServer_v${VERSION}_linux_x86_64.rpm"
+
+      # Catches dependency names that don't exist on a distro before users hit them.
+      - name: Install test (.deb on Ubuntu 22.04, .rpm on Fedora)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get install -y --no-install-recommends "./upload/UseAsServer_v${VERSION}_linux_amd64.deb"
+          test -x /usr/bin/use-as-server
+          docker run --rm -v "$PWD/upload:/pkg:ro" fedora:latest \
+            dnf install -y --setopt=install_weak_deps=False "/pkg/UseAsServer_v${VERSION}_linux_x86_64.rpm"
 
       - name: Disk image (macOS)
         if: runner.os == 'macOS'

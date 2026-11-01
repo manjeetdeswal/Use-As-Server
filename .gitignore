@@ -16,3 +16,5 @@ flatpak-build/
 flatpak-repo/
 packaging/flatpak/UseAsServer
 packaging/flatpak/icon-256.png
+packaging/linux/icon-256.png
+.venv/

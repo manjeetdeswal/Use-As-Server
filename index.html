@@ -438,7 +438,7 @@
             </div>
             <div>
                 <a href="#download" class="btn btn-linux">Download for Linux</a>
-                <p class="btn-caption"><span data-version>v2.1</span> • .tar.gz &amp; Flatpak • x86-64</p>
+                <p class="btn-caption"><span data-version>v2.1</span> • .deb • .rpm • Flatpak • x86-64</p>
             </div>
         </div>
         <div class="btn-group" style="margin-top: 25px;">
@@ -505,9 +505,29 @@
 
                 <div class="download-card">
                     <div>
+                        <span class="icon">🟠</span>
+                        <h3>Ubuntu / Mint / Debian (.deb)</h3>
+                        <p>Recommended. Installs everything it needs and sets up the gamepad and webcam.</p>
+                        <p class="file" data-file="deb">UseAsServer_v2.1_linux_amd64.deb</p>
+                    </div>
+                    <a href="https://github.com/manjeetdeswal/Use-As-Server/releases/latest" data-asset="deb" class="btn btn-linux btn-small">Download</a>
+                </div>
+
+                <div class="download-card">
+                    <div>
+                        <span class="icon">🔵</span>
+                        <h3>Fedora (.rpm)</h3>
+                        <p>Installs everything it needs and sets up the gamepad and webcam.</p>
+                        <p class="file" data-file="rpm">UseAsServer_v2.1_linux_x86_64.rpm</p>
+                    </div>
+                    <a href="https://github.com/manjeetdeswal/Use-As-Server/releases/latest" data-asset="rpm" class="btn btn-flatpak btn-small">Download</a>
+                </div>
+
+                <div class="download-card">
+                    <div>
                         <span class="icon">🐧</span>
                         <h3>Linux (.tar.gz)</h3>
-                        <p>One file for Ubuntu, Mint, Debian, Fedora, Arch and others.</p>
+                        <p>One program file for any distribution, e.g. Arch. No install, you add the tools yourself.</p>
                         <p class="file" data-file="linux-tar">UseAsServer_v2.1_linux_x86_64.tar.gz</p>
                     </div>
                     <a href="https://github.com/manjeetdeswal/Use-As-Server/releases/latest" data-asset="linux-tar" class="btn btn-linux btn-small">Download</a>
@@ -609,7 +629,26 @@
                 </div>
 
                 <div class="os-box linux-box">
-                    <h3 style="color: var(--linux-color);">Option A: .tar.gz (all distributions)</h3>
+                    <h3 style="color: var(--linux-color);">Option A: .deb or .rpm (recommended)</h3>
+                    <p>Installs Use As Server with everything it needs (xdotool, pactl, playerctl, xclip, wmctrl, and v4l2loopback when your distro has it), adds it to the app menu, and sets up the <strong>gamepad</strong> and the <strong>webcam</strong> for you.</p>
+                    <p class="distro-label">Ubuntu / Mint / Debian: double-click the <code>.deb</code>, or in its folder:</p>
+                    <div class="terminal-wrap"><div class="terminal">sudo apt install ./<span data-file="deb">UseAsServer_v2.1_linux_amd64.deb</span></div></div>
+                    <p class="distro-label">Fedora (for the webcam, enable <a href="https://rpmfusion.org/Configuration" target="_blank" rel="noopener">RPM Fusion</a> first):</p>
+                    <div class="terminal-wrap"><div class="terminal">sudo dnf install ./<span data-file="rpm">UseAsServer_v2.1_linux_x86_64.rpm</span></div></div>
+                    <p class="note">Then open <strong>Use As Server</strong> from the app menu, or run <code>use-as-server</code>. Restart once so the webcam (<code>/dev/video10</code>) and gamepad permission are active. Installing it also replaces the old 1.5 package and its Python setup.</p>
+                </div>
+
+                <div class="os-box flatpak-box">
+                    <h3 style="color: var(--flatpak-color);">Option B: Flatpak</h3>
+                    <p>Contains xdotool, xclip, wmctrl, playerctl and pactl. Install it from a terminal in the download folder (Linux Mint's Software Manager doesn't open <code>.flatpak</code> files):</p>
+                    <div class="terminal-wrap"><div class="terminal">flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+flatpak install --user <span data-file="flatpak">UseAsServer_v2.1_x86_64.flatpak</span>
+flatpak run com.jeetstudio.UseAsServer</div></div>
+                    <p class="note">After installing, <strong>Use As Server</strong> is also in your app menu. The webcam and gamepad steps below are still needed: a Flatpak can't change system settings.</p>
+                </div>
+
+                <div class="os-box linux-box">
+                    <h3 style="color: var(--linux-color);">Option C: .tar.gz (any distribution)</h3>
                     <p><strong>1. Unpack and run</strong> (in the folder you downloaded to):</p>
                     <div class="terminal-wrap"><div class="terminal">tar -xzf <span data-file="linux-tar">UseAsServer_v2.1_linux_x86_64.tar.gz</span>
 chmod +x UseAsServer
@@ -624,17 +663,9 @@ chmod +x UseAsServer
                     <div class="terminal-wrap"><div class="terminal">sudo pacman -S xdotool libpulse playerctl xclip wmctrl</div></div>
                 </div>
 
-                <div class="os-box flatpak-box">
-                    <h3 style="color: var(--flatpak-color);">Option B: Flatpak</h3>
-                    <p>The Flatpak already contains the tools above. It needs Flathub for its base (most distros have it):</p>
-                    <div class="terminal-wrap"><div class="terminal">flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
-flatpak install --user <span data-file="flatpak">UseAsServer_v2.1_x86_64.flatpak</span>
-flatpak run com.jeetstudio.UseAsServer</div></div>
-                    <p class="note">After installing, <strong>Use As Server</strong> is also in your app menu. The webcam and gamepad steps below are still needed: a Flatpak can't load kernel modules.</p>
-                </div>
-
                 <div class="os-box linux-box">
                     <h3 style="color: var(--linux-color);">Feature Setup</h3>
+                    <p style="color: var(--text-secondary);">With the .deb or .rpm the webcam and gamepad are already set up; these steps are for the Flatpak and .tar.gz.</p>
                     <div class="table-scroll">
                     <table class="setup">
                         <tr>
@@ -944,7 +975,9 @@ sudo modprobe v4l2loopback devices=1 video_nr=10 exclusive_caps=1 card_label="Us
             "mac-arm": /_mac_arm64\.dmg$/i,
             "mac-intel": /_mac_x86_64\.dmg$/i,
             "linux-tar": /_linux_x86_64\.tar\.gz$/i,
-            "flatpak": /\.flatpak$/i
+            "flatpak": /\.flatpak$/i,
+            "deb": /\.deb$/i,
+            "rpm": /\.rpm$/i
         };
         fetch("https://api.github.com/repos/manjeetdeswal/Use-As-Server/releases/latest")
             .then(r => (r.ok ? r.json() : Promise.reject(r.status)))
