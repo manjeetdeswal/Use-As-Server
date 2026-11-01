@@ -372,8 +372,14 @@ class ServerGUI:
             else:
                 png = resource_path("icon.png")
                 if os.path.exists(png):
-                    self._icon_img = tk.PhotoImage(file=png)
-                    self.root.iconphoto(True, self._icon_img)
+                    # icon.png is 2048x2048. Handed to Tk as is, Linux sends it to the X server
+                    # as one ~32 MB request (X allows ~16 MB) and the app dies with
+                    # "X Error ... BadLength". Small sizes are all a window icon needs.
+                    from PIL import ImageTk
+                    src = Image.open(png).convert("RGBA")
+                    self._icon_imgs = [ImageTk.PhotoImage(src.resize((n, n), Image.LANCZOS))
+                                       for n in (128, 64, 32)]
+                    self.root.iconphoto(True, *self._icon_imgs)
         except Exception:
             pass
  
@@ -517,6 +523,9 @@ class ServerGUI:
             if os.path.exists(icon_path):
                 try:
                     image = Image.open(icon_path)
+                    if self.platform.name != "windows":
+                        # Same 2048px icon: far too big for the Linux/macOS tray.
+                        image = image.convert("RGBA").resize((128, 128), Image.LANCZOS)
                     break
                 except Exception:
                     pass

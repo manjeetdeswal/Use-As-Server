@@ -62,6 +62,15 @@ a = Analysis(
     noarchive=False,
     optimize=0,
 )
+if not WINDOWS and not MAC:
+    # Linux: use the computer's own font libraries, not the build machine's. The GitHub build
+    # runs on Ubuntu 22.04, whose libXft (2.3.4) kills the app with "X Error ... BadLength"
+    # as soon as Tk draws a colour emoji (fixed in libXft 2.3.5). fontconfig/freetype go with
+    # it so the system libXft gets the versions it was built against. Every Linux desktop has
+    # these. (Pillow/OpenCV keep their own renamed copies, e.g. libfreetype-1a2b3c.so, untouched.)
+    _system_libs = ('libXft.so', 'libfontconfig.so', 'libfreetype.so')
+    a.binaries = [b for b in a.binaries if not os.path.basename(b[0]).startswith(_system_libs)]
+
 pyz = PYZ(a.pure)
 
 if MAC:
@@ -89,7 +98,7 @@ if MAC:
         icon='icon.png',
         bundle_identifier='com.jeetstudio.useasserver',
         info_plist={
-            'CFBundleShortVersionString': '2.0',
+            'CFBundleShortVersionString': os.environ.get('VERSION', '2.0'),   # set by the workflow
             'NSHighResolutionCapable': True,
             # Asked the first time each is used:
             'NSMicrophoneUsageDescription':

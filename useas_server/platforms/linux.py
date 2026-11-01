@@ -115,6 +115,14 @@ class LinuxPlatform(Platform):
             run_quiet(["pactl", "set-sink-volume", MIC_SINK, "100%"])
 
     # --- OS integration --------------------------------------------------------------
+    def launch_command(self):
+        """Inside the Flatpak the app's own path only exists in the sandbox; the auto-start
+        entry and the Nautilus script run on the computer, so they go through flatpak run."""
+        app_id = os.environ.get("FLATPAK_ID")
+        if app_id:
+            return ["flatpak", "run", app_id]
+        return super().launch_command()
+
     def open_path(self, path):
         subprocess.Popen(["xdg-open", str(path)])
 

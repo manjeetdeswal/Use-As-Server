@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Use As Server
+Comment=Use your phone as a mouse, keyboard, gamepad, webcam, microphone and second screen
+Exec=UseAsServer
+Icon=com.jeetstudio.UseAsServer
+Terminal=false
+Categories=Utility;Network;
+Keywords=phone;remote;webcam;gamepad;second screen;

@@ -10,3 +10,9 @@ Final_Build/drivers/VBCABLE/
 Final_Build/drivers/VirtualAudioDriver/
 Final_Build/drivers/devcon.exe
 Final_Build/usbmmidd_v2.zip
+# Flatpak build (packaging/flatpak gets the Linux build and icon copied in)
+.flatpak-builder/
+flatpak-build/
+flatpak-repo/
+packaging/flatpak/UseAsServer
+packaging/flatpak/icon-256.png

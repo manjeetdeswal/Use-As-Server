@@ -1,0 +1,47 @@
+# Flatpak for Use As Server. Built by .github/workflows/build.yml, which first puts the
+# PyInstaller Linux build (UseAsServer) and a 256 px icon (icon-256.png) next to this file.
+#
+# Build it yourself on Linux (after `pyinstaller UseAsServer.spec`):
+#   cp dist/UseAsServer packaging/flatpak/
+#   python3 -c "from PIL import Image; Image.open('icon.png').convert('RGBA').resize((256,256)).save('packaging/flatpak/icon-256.png')"
+#   flatpak-builder --user --install-deps-from=flathub --force-clean --install flatpak-build packaging/flatpak/com.jeetstudio.UseAsServer.yml
+#   flatpak run com.jeetstudio.UseAsServer
+app-id: com.jeetstudio.UseAsServer
+runtime: org.freedesktop.Platform
+runtime-version: '25.08'
+sdk: org.freedesktop.Sdk
+command: UseAsServer
+
+finish-args:
+  - --share=network          # the phone connects over Wi-Fi / USB
+  - --share=ipc
+  - --socket=x11             # window, screen capture, mouse and keyboard (pyautogui)
+  - --socket=pulseaudio      # PC sound to the phone, phone mic to the PC
+  - --device=all             # /dev/uinput (gamepad) and /dev/video* (virtual webcam)
+  - --filesystem=home        # file browser, received files, settings in ~/.config/useas_server
+  - --talk-name=org.freedesktop.Notifications
+  - --talk-name=org.kde.StatusNotifierWatcher   # tray icon
+  # The app runs xdotool, pactl, playerctl, xclip, xrandr… Those live on the computer, not in
+  # the sandbox, so the wrappers in /app/bin run them there (flatpak-spawn --host). This gives
+  # the app full access to the computer, like the normal build has; fine for a .flatpak you
+  # hand out yourself, but Flathub would not accept it.
+  - --talk-name=org.freedesktop.Flatpak
+
+modules:
+  - name: use-as-server
+    buildsystem: simple
+    build-commands:
+      - install -Dm755 UseAsServer /app/bin/UseAsServer
+      - for tool in xdotool pactl playerctl xclip wl-copy wmctrl xrandr nautilus; do
+          install -Dm755 host-command.sh "/app/bin/$tool"; done
+      - install -Dm644 com.jeetstudio.UseAsServer.desktop /app/share/applications/com.jeetstudio.UseAsServer.desktop
+      - install -Dm644 icon-256.png /app/share/icons/hicolor/256x256/apps/com.jeetstudio.UseAsServer.png
+    sources:
+      - type: file
+        path: UseAsServer
+      - type: file
+        path: icon-256.png
+      - type: file
+        path: host-command.sh
+      - type: file
+        path: com.jeetstudio.UseAsServer.desktop
