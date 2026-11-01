@@ -1,41 +1,106 @@
-# Builds Use As Server for Windows, Linux and macOS on GitHub's machines.
+# Builds Use As Server for Windows, Linux (+ Flatpak) and macOS on GitHub's machines.
 #
-#  - Push a tag like v2.1 (git tag v2.1 && git push origin v2.1): all builds run and are
-#    attached to a GitHub release for that tag. The app's "Check for Update" finds it.
-#  - Actions tab › "Build Use As Server" › Run workflow: builds only, downloadable from the
-#    run's page (Artifacts), no release.
+#  Two ways to run it:
+#  - Actions tab › "Build Use As Server" › Run workflow. You choose:
+#      version    e.g. 2.1  (empty = APP_VERSION in useas_server/common.py)
+#      platforms  all / windows / linux / macos
+#      flatpak    also make a .flatpak (needs Linux); xdotool, xclip, wmctrl, playerctl and
+#                 pactl are built into it (packaging/flatpak/build-tools.sh)
+#      release    publish the files as GitHub release v<version>; off = files only,
+#                 downloadable from the run's page (Artifacts)
+#  - Push a tag:  git tag v2.1 && git push origin v2.1
+#      builds everything (Flatpak included) and publishes release v2.1.
+#  The app's "Check for Update" looks at the newest release's tag.
 name: Build Use As Server
 
 on:
   push:
     tags: ["v*"]
   workflow_dispatch:
+    inputs:
+      version:
+        description: "Version, e.g. 2.1 (empty = APP_VERSION in useas_server/common.py)"
+        required: false
+        default: ""
+      platforms:
+        description: "What to build"
+        type: choice
+        options: [all, windows, linux, macos]
+        default: all
+      flatpak:
+        description: "Also make a Flatpak (when Linux is built)"
+        type: boolean
+        default: true
+      release:
+        description: "Publish a GitHub release v<version> with the files"
+        type: boolean
+        default: false
 
 permissions:
   contents: write          # needed to create the release
 
 jobs:
+  prepare:
+    name: Version and platforms
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      matrix: ${{ steps.matrix.outputs.matrix }}
+      linux: ${{ steps.matrix.outputs.linux }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: version
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+          elif [[ -n "$INPUT_VERSION" ]]; then
+            VERSION="${INPUT_VERSION#v}"
+          else
+            VERSION=$(sed -nE 's/^APP_VERSION *= *"([^"]+)".*/\1/p' useas_server/common.py)
+          fi
+          VERSION="$(echo "$VERSION" | tr -d '[:space:]')"
+          if ! [[ "$VERSION" =~ ^[0-9]+(\.[0-9]+){0,3}$ ]]; then
+            echo "::error::Version '$VERSION' should look like 2.1 or 2.1.3"
+            exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "### Building Use As Server $VERSION" >> "$GITHUB_STEP_SUMMARY"
+
+      - id: matrix
+        env:
+          PLATFORMS: ${{ inputs.platforms || 'all' }}
+        run: |
+          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import json, os
+          builds = [
+              {"name": "Windows", "os": "windows-latest", "family": "windows",
+               "requirements": "requirements-windows.txt", "arch": "x64"},
+              # older Ubuntu = older glibc = the Linux build runs on more distros
+              {"name": "Linux", "os": "ubuntu-22.04", "family": "linux",
+               "requirements": "requirements-linux.txt", "arch": "x86_64"},
+              {"name": "macOS (Apple silicon)", "os": "macos-15", "family": "macos",
+               "requirements": "requirements-mac.txt", "arch": "arm64"},
+              {"name": "macOS (Intel)", "os": "macos-15-intel", "family": "macos",
+               "requirements": "requirements-mac.txt", "arch": "x86_64"},
+          ]
+          want = os.environ["PLATFORMS"]
+          chosen = [b for b in builds if want == "all" or b["family"] == want]
+          print("matrix=" + json.dumps({"include": chosen}))
+          print("linux=" + str(any(b["family"] == "linux" for b in chosen)).lower())
+          PY
+
   build:
     name: ${{ matrix.name }}
+    needs: prepare
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false     # one OS failing doesn't cancel the others
-      matrix:
-        include:
-          - name: Windows
-            os: windows-latest
-            requirements: requirements-windows.txt
-          - name: Linux
-            os: ubuntu-22.04           # older glibc = runs on more distros
-            requirements: requirements-linux.txt
-          - name: macOS (Apple silicon)
-            os: macos-15
-            requirements: requirements-mac.txt
-            arch: arm64
-          - name: macOS (Intel)
-            os: macos-15-intel
-            requirements: requirements-mac.txt
-            arch: x86_64
+      matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
 
     steps:
       - uses: actions/checkout@v4
@@ -46,22 +111,11 @@ jobs:
           cache: pip
           cache-dependency-path: requirements-*.txt
 
-      - name: Version
-        shell: bash
-        run: |
-          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
-            VERSION="${GITHUB_REF_NAME#v}"
-          else
-            VERSION=$(python -c "import re;print(re.search(r'APP_VERSION\s*=\s*\"([^\"]+)\"', open('useas_server/common.py').read()).group(1))")
-          fi
-          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
-          echo "Building version $VERSION"
-
       - name: System packages (Linux)
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y portaudio19-dev
+          sudo apt-get install -y portaudio19-dev xvfb
 
       - name: System packages (macOS)
         if: runner.os == 'macOS'
@@ -89,6 +143,25 @@ jobs:
 
       - name: Build with PyInstaller
         run: python -m PyInstaller --noconfirm UseAsServer.spec
+
+      # Opens the window on a virtual screen for 25 s. Catches crashes like the
+      # "X Error ... BadLength" one before the build is shipped.
+      - name: Start-up test (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          set +e
+          HOME="$RUNNER_TEMP/home" ; mkdir -p "$HOME"
+          timeout 25 xvfb-run -a -s "-screen 0 1280x800x24" dist/UseAsServer > startup.log 2>&1
+          code=$?
+          cat startup.log
+          if grep -q "X Error" startup.log; then
+            echo "::error::The window crashed with an X error (see the log above)"
+            exit 1
+          fi
+          if [[ $code -ne 124 ]]; then
+            echo "::warning::The app quit by itself during the start-up test (exit code $code)"
+          fi
+          exit 0
 
       # ---- package per OS ----
       - name: Installer (Windows)
@@ -118,14 +191,77 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: UseAsServer-${{ runner.os }}-${{ matrix.arch || 'x64' }}
+          name: UseAsServer-${{ matrix.family }}-${{ matrix.arch }}
+          path: upload/*
+          if-no-files-found: error
+
+  flatpak:
+    name: Flatpak
+    needs: [prepare, build]
+    # !cancelled(): still runs when only another OS failed (the Linux file is all it needs)
+    if: ${{ !cancelled() && needs.prepare.outputs.linux == 'true' && (github.event_name == 'push' || inputs.flatpak) }}
+    runs-on: ubuntu-24.04
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
+      APP_ID: com.jeetstudio.UseAsServer
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: UseAsServer-linux-x86_64
+          path: linux-build
+
+      - name: Tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y flatpak flatpak-builder python3-pil
+          # Ubuntu 24.04 blocks the sandbox flatpak-builder uses; allow it on this build machine
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+
+      - name: Files for the Flatpak
+        run: |
+          tar -xzf linux-build/*.tar.gz -C packaging/flatpak
+          python3 -c "from PIL import Image; Image.open('icon.png').convert('RGBA').resize((256, 256), Image.LANCZOS).save('packaging/flatpak/icon-256.png')"
+
+      - name: Build the Flatpak
+        run: |
+          flatpak-builder --user --install-deps-from=flathub --disable-rofiles-fuse \
+            --force-clean --repo=flatpak-repo flatpak-build "packaging/flatpak/$APP_ID.yml"
+
+      - name: Tools inside the Flatpak
+        run: |
+          f=flatpak-build/files/tools/share/useas/bundled-tools.txt
+          cat "$f"
+          { echo "### Tools inside the Flatpak"; sed 's/^/- /' "$f"; } >> "$GITHUB_STEP_SUMMARY"
+
+      # The Linux build uses the computer's own libXft/fontconfig/freetype (see UseAsServer.spec),
+      # so the Flatpak runtime must have them.
+      - name: Check the runtime has the font libraries
+        run: |
+          flatpak-builder --run flatpak-build "packaging/flatpak/$APP_ID.yml" sh -c '
+            for l in libXft.so.2 libfontconfig.so.1 libfreetype.so.6; do
+              ls /usr/lib/x86_64-linux-gnu/$l /usr/lib/$l 2>/dev/null | grep -q . || { echo "missing $l"; exit 1; }
+            done; echo "font libraries OK"'
+
+      - name: Bundle
+        run: |
+          mkdir -p upload
+          flatpak build-bundle flatpak-repo "upload/UseAsServer_v${VERSION}_x86_64.flatpak" "$APP_ID" \
+            --runtime-repo=https://dl.flathub.org/repo/flathub.flatpakrepo
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: UseAsServer-flatpak-x86_64
           path: upload/*
           if-no-files-found: error
 
   release:
     name: GitHub release
-    needs: build
-    if: github.ref_type == 'tag'
+    needs: [prepare, build, flatpak]
+    # Every OS must have built; the Flatpak may be skipped but not failed.
+    if: ${{ !cancelled() && needs.build.result == 'success' && needs.flatpak.result != 'failure' && (github.ref_type == 'tag' || inputs.release) }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
@@ -134,5 +270,8 @@ jobs:
           merge-multiple: true
       - uses: softprops/action-gh-release@v2
         with:
+          tag_name: v${{ needs.prepare.outputs.version }}
+          name: Use As Server ${{ needs.prepare.outputs.version }}
+          target_commitish: ${{ github.sha }}
           files: files/*
           generate_release_notes: true
