@@ -4,12 +4,14 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Use As - PC Server & User Guide</title>
+    <meta name="description" content="Use As turns your Android phone into a touchpad, keyboard, gamepad, webcam, microphone, speaker and second screen for Windows, macOS and Linux.">
     <style>
         :root {
             --primary: #00E676;       /* Android Green */
             --primary-dark: #00C853;
+            --windows-color: #00A4EF;
             --linux-color: #E95420;   /* Ubuntu Orange */
-            --fedora-color: #51A2DA;  /* Fedora Blue */
+            --flatpak-color: #4A90D9;
             --mac-color: #F5F5F7;     /* Mac Silver */
             --bg: #121212;            /* Dark Mode Background */
             --surface: #1E1E1E;       /* Card Background */
@@ -21,31 +23,44 @@
 
         * { margin: 0; padding: 0; box-sizing: border-box; }
 
+        html { scroll-behavior: smooth; }
+
         body {
             font-family: 'Segoe UI', system-ui, sans-serif;
             background-color: var(--bg);
             color: var(--text);
             line-height: 1.6;
-            scroll-behavior: smooth;
+        }
+
+        a { color: var(--accent); }
+
+        code {
+            font-family: 'Consolas', 'Courier New', monospace;
+            background: rgba(255, 255, 255, 0.08);
+            padding: 1px 6px;
+            border-radius: 4px;
+            font-size: 0.9em;
+            overflow-wrap: anywhere;
         }
 
         /* --- Header --- */
         header {
             text-align: center;
-            padding: 80px 20px;
+            padding: 80px 16px 70px;
             background: radial-gradient(circle at top, #1e2824 0%, var(--bg) 70%);
         }
 
         h1 {
-            font-size: 3.5rem;
+            font-size: clamp(2.2rem, 7vw, 3.5rem);
             margin-bottom: 15px;
             letter-spacing: -1px;
+            line-height: 1.15;
         }
 
         .subtitle {
-            font-size: 1.25rem;
+            font-size: 1.2rem;
             color: var(--text-secondary);
-            max-width: 600px;
+            max-width: 640px;
             margin: 0 auto 40px;
         }
 
@@ -59,92 +74,42 @@
 
         .btn {
             display: inline-block;
-            padding: 15px 40px;
+            padding: 14px 34px;
             border-radius: 50px;
             text-decoration: none;
             font-weight: 700;
-            font-size: 1.1rem;
+            font-size: 1.05rem;
             transition: all 0.2s ease;
             cursor: pointer;
             border: none;
+            text-align: center;
         }
 
-        .btn-primary {
-            background-color: var(--primary);
-            color: #000;
-            box-shadow: 0 4px 15px rgba(0, 230, 118, 0.3);
-        }
+        .btn:hover { transform: translateY(-2px); }
 
-        .btn-primary:hover {
-            background-color: var(--primary-dark);
-            transform: translateY(-2px);
-            box-shadow: 0 6px 20px rgba(0, 230, 118, 0.4);
-        }
+        .btn-primary { background-color: var(--primary); color: #000; box-shadow: 0 4px 15px rgba(0, 230, 118, 0.3); }
+        .btn-primary:hover { background-color: var(--primary-dark); }
+        .btn-windows { background-color: var(--windows-color); color: #fff; box-shadow: 0 4px 15px rgba(0, 164, 239, 0.3); }
+        .btn-windows:hover { background-color: #0088c7; }
+        .btn-linux { background-color: var(--linux-color); color: #fff; box-shadow: 0 4px 15px rgba(233, 84, 32, 0.3); }
+        .btn-linux:hover { background-color: #c9461b; }
+        .btn-flatpak { background-color: var(--flatpak-color); color: #fff; }
+        .btn-flatpak:hover { background-color: #3a78b8; }
+        .btn-mac { background-color: var(--mac-color); color: #000; box-shadow: 0 4px 15px rgba(255, 255, 255, 0.1); }
+        .btn-mac:hover { background-color: #FFFFFF; }
+        .btn-accent { background-color: var(--accent); color: #fff; box-shadow: 0 4px 15px rgba(41, 121, 255, 0.3); }
+        .btn-accent:hover { background-color: #1c54b2; }
+        .btn-secondary { background-color: var(--surface); color: var(--text); border: 1px solid #333; }
+        .btn-secondary:hover { border-color: var(--text); background-color: #252525; }
+        .btn-small { padding: 10px 22px; font-size: 0.95rem; }
 
-        .btn-linux {
-            background-color: var(--linux-color);
-            color: #fff;
-            box-shadow: 0 4px 15px rgba(233, 84, 32, 0.3);
-        }
-
-        .btn-linux:hover {
-            background-color: #c9461b;
-            transform: translateY(-2px);
-            box-shadow: 0 6px 20px rgba(233, 84, 32, 0.4);
-        }
-
-        .btn-fedora {
-            background-color: var(--fedora-color);
-            color: #fff;
-            box-shadow: 0 4px 15px rgba(81, 162, 218, 0.3);
-        }
-
-        .btn-fedora:hover {
-            background-color: #3b8bc2;
-            transform: translateY(-2px);
-            box-shadow: 0 6px 20px rgba(81, 162, 218, 0.4);
-        }
-
-        .btn-mac {
-            background-color: var(--mac-color);
-            color: #000;
-            box-shadow: 0 4px 15px rgba(255, 255, 255, 0.1);
-        }
-
-        .btn-mac:hover {
-            background-color: #FFFFFF;
-            transform: translateY(-2px);
-            box-shadow: 0 6px 20px rgba(255, 255, 255, 0.2);
-        }
-
-        .btn-accent {
-            background-color: var(--accent);
-            color: #fff;
-            box-shadow: 0 4px 15px rgba(41, 121, 255, 0.3);
-        }
-
-        .btn-accent:hover {
-            background-color: #1c54b2;
-            transform: translateY(-2px);
-            box-shadow: 0 6px 20px rgba(41, 121, 255, 0.4);
-        }
-
-        .btn-secondary {
-            background-color: var(--surface);
-            color: var(--text);
-            border: 1px solid #333;
-        }
-
-        .btn-secondary:hover {
-            border-color: var(--text);
-            background-color: #252525;
-        }
+        .btn-caption { margin-top: 6px; font-size: 0.8rem; color: #888; }
 
         /* --- Container --- */
         .container {
             max-width: 1000px;
             margin: 0 auto;
-            padding: 40px 20px;
+            padding: 40px 16px;
         }
 
         section { margin-bottom: 80px; }
@@ -154,11 +119,43 @@
             margin-bottom: 30px;
             border-left: 5px solid var(--primary);
             padding-left: 20px;
+            line-height: 1.25;
         }
 
-        h2.linux-header { border-color: var(--linux-color); }
-        h2.mac-header { border-color: var(--mac-color); }
-        h2.fedora-header { border-color: var(--fedora-color); }
+        h3 { margin-bottom: 15px; color: var(--primary); }
+
+        .lead { color: var(--text-secondary); margin: -15px 0 25px; }
+
+        /* --- Downloads --- */
+        .downloads-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 20px;
+        }
+
+        .download-card {
+            background: var(--surface);
+            padding: 22px 20px;
+            text-align: center;
+            border-radius: 12px;
+            border: 1px solid #333;
+            transition: 0.2s;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            gap: 14px;
+        }
+
+        .download-card:hover { border-color: var(--primary); }
+        .download-card h3 { margin-bottom: 6px; color: #fff; font-size: 1.15rem; }
+        .download-card p { font-size: 0.9rem; color: var(--text-secondary); }
+        .download-card .file { font-size: 0.78rem; color: #777; overflow-wrap: anywhere; }
+        .download-card .btn { width: 100%; }
+        .download-card.android { border-color: rgba(0, 230, 118, 0.4); }
+        .icon { font-size: 2.3rem; display: block; margin-bottom: 8px; }
+        a.missing { opacity: 0.6; }
+
+        .release-line { text-align: center; margin-top: 20px; color: var(--text-secondary); font-size: 0.9rem; }
 
         /* --- Tabs --- */
         .tab-buttons {
@@ -170,6 +167,7 @@
             border-radius: 12px;
             margin-bottom: 30px;
             width: fit-content;
+            max-width: 100%;
         }
 
         .tab-btn {
@@ -177,31 +175,21 @@
             color: var(--text-secondary);
             border: none;
             padding: 10px 24px;
-            font-size: 1.1rem;
+            font-size: 1.05rem;
             font-weight: bold;
             border-radius: 8px;
             cursor: pointer;
             transition: 0.3s;
+            font-family: inherit;
         }
 
-        .tab-btn:hover {
-            color: var(--text);
-        }
-
-        /* Active states for tabs based on OS */
-        .tab-btn.active[data-os="windows"] { background: #00A4EF; color: #fff; }
+        .tab-btn:hover { color: var(--text); }
+        .tab-btn.active[data-os="windows"] { background: var(--windows-color); color: #fff; }
         .tab-btn.active[data-os="macos"] { background: var(--mac-color); color: #000; }
         .tab-btn.active[data-os="linux"] { background: var(--linux-color); color: #fff; }
-        .tab-btn.active[data-os="fedora"] { background: var(--fedora-color); color: #fff; }
 
-        .tab-content {
-            display: none;
-            animation: fadeIn 0.4s ease;
-        }
-
-        .tab-content.active {
-            display: block;
-        }
+        .tab-content { display: none; animation: fadeIn 0.4s ease; }
+        .tab-content.active { display: block; }
 
         @keyframes fadeIn {
             from { opacity: 0; transform: translateY(10px); }
@@ -211,17 +199,20 @@
         /* --- Steps Grid --- */
         .steps {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
             gap: 25px;
+            margin-bottom: 25px;
         }
 
         .step-card {
             background: var(--surface);
-            padding: 30px;
+            padding: 30px 24px 24px;
             border-radius: 16px;
             position: relative;
             border: 1px solid #333;
         }
+
+        .step-card p + p { margin-top: 10px; }
 
         .step-num {
             position: absolute;
@@ -238,8 +229,6 @@
             font-weight: bold;
         }
 
-        h3 { margin-bottom: 15px; color: var(--primary); }
-        
         .note {
             font-size: 0.9rem;
             color: var(--text-secondary);
@@ -248,40 +237,88 @@
             border-radius: 8px;
             margin-top: 15px;
         }
-        
+
         .note.warning {
             background: rgba(255, 171, 0, 0.1);
             border: 1px solid rgba(255, 171, 0, 0.3);
             color: var(--warning);
         }
 
-        /* --- Downloads Grid --- */
-        .downloads-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 20px;
-        }
-
-        .download-card {
-            background: var(--surface);
-            padding: 20px;
-            text-align: center;
-            border-radius: 12px;
+        /* --- OS boxes & code --- */
+        .os-box {
+            background: linear-gradient(145deg, #1E1E1E, #222);
             border: 1px solid #333;
-            transition: 0.2s;
-            display: flex;
-            flex-direction: column;
-            justify-content: space-between;
+            padding: 25px;
+            border-radius: 8px;
+            margin-bottom: 25px;
         }
 
-        .download-card:hover { border-color: var(--primary); }
-        .icon { font-size: 2.5rem; display: block; margin-bottom: 10px; }
+        .os-box p { margin-bottom: 8px; }
+        .os-box ul, .os-box ol { margin: 10px 0 0 20px; color: var(--text-secondary); }
+        .os-box li { margin-bottom: 8px; }
+        .windows-box { border-left: 4px solid var(--windows-color); }
+        .linux-box { border-left: 4px solid var(--linux-color); }
+        .flatpak-box { border-left: 4px solid var(--flatpak-color); }
+        .mac-box { border-left: 4px solid var(--mac-color); }
+
+        .terminal-wrap { position: relative; }
+
+        .terminal {
+            background-color: #000;
+            color: #00ff00;
+            font-family: 'Consolas', 'Courier New', monospace;
+            padding: 15px 15px 15px 15px;
+            padding-right: 70px;
+            border-radius: 6px;
+            margin: 10px 0;
+            white-space: pre-wrap;
+            overflow-wrap: anywhere;
+            font-size: 0.9rem;
+            border-left: 3px solid #555;
+        }
+
+        .terminal .comment { color: #6a9955; }
+
+        .copy-btn {
+            position: absolute;
+            top: 8px;
+            right: 8px;
+            background: #2a2a2a;
+            color: var(--text-secondary);
+            border: 1px solid #444;
+            border-radius: 6px;
+            padding: 3px 10px;
+            font-size: 0.8rem;
+            cursor: pointer;
+            font-family: inherit;
+        }
+
+        .copy-btn:hover { color: #fff; border-color: #888; }
+
+        .distro-label { font-size: 0.85rem; color: var(--text-secondary); margin-top: 12px; }
+
+        table.setup {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 10px;
+            font-size: 0.92rem;
+        }
+
+        table.setup th, table.setup td {
+            text-align: left;
+            padding: 10px;
+            border-bottom: 1px solid #333;
+            vertical-align: top;
+        }
+
+        table.setup th { color: var(--text-secondary); font-weight: 600; width: 28%; }
+        .table-scroll { overflow-x: auto; }
 
         /* --- FEATURE GUIDES --- */
         .feature-grid {
             display: grid;
             grid-template-columns: 1fr;
-            gap: 40px;
+            gap: 30px;
         }
 
         .feature-card {
@@ -294,22 +331,22 @@
         }
 
         .feature-header {
-            padding: 20px 30px;
+            padding: 18px 24px;
             background: rgba(255,255,255,0.03);
             border-bottom: 1px solid #333;
             display: flex;
             align-items: center;
-            gap: 15px;
+            gap: 12px;
+            flex-wrap: wrap;
         }
-        
-        .feature-header h3 { margin: 0; color: #fff; font-size: 1.4rem; }
-        .feature-icon { font-size: 1.8rem; }
 
-        .feature-body { padding: 30px; }
-        .feature-body ul { padding-left: 20px; margin-bottom: 20px; color: var(--text-secondary); }
-        .feature-body li { margin-bottom: 10px; }
+        .feature-header h3 { margin: 0; color: #fff; font-size: 1.3rem; }
+        .feature-icon { font-size: 1.7rem; }
+        .feature-body { padding: 24px; }
+        .feature-body > p { margin-bottom: 12px; }
+        .feature-body ul { padding-left: 20px; color: var(--text-secondary); }
+        .feature-body li { margin-bottom: 9px; }
 
-        /* Setup tag styles */
         .setup-tag {
             display: inline-block;
             padding: 4px 12px;
@@ -320,31 +357,6 @@
         }
         .tag-req { background: rgba(255, 171, 0, 0.15); color: var(--warning); border: 1px solid rgba(255, 171, 0, 0.3); }
         .tag-easy { background: rgba(0, 230, 118, 0.15); color: var(--primary); border: 1px solid rgba(0, 230, 118, 0.3); }
-
-        /* --- OS & CODE STYLES --- */
-        .os-box {
-            background: linear-gradient(145deg, #1E1E1E, #222);
-            border: 1px solid #333;
-            padding: 25px;
-            border-radius: 8px;
-            margin-bottom: 25px;
-        }
-
-        .linux-box { border-left: 4px solid var(--linux-color); }
-        .fedora-box { border-left: 4px solid var(--fedora-color); }
-        .mac-box { border-left: 4px solid var(--mac-color); }
-
-        .terminal {
-            background-color: #000;
-            color: #00ff00;
-            font-family: 'Consolas', 'Courier New', monospace;
-            padding: 15px;
-            border-radius: 6px;
-            margin: 10px 0;
-            white-space: pre-wrap;
-            font-size: 0.9rem;
-            border-left: 3px solid #555;
-        }
 
         /* --- FAQ / Troubleshooting --- */
         details {
@@ -365,23 +377,43 @@
         summary:hover { background: #2a2a2a; }
 
         .faq-content {
-            padding: 0 20px 20px;
+            padding: 15px 20px 20px;
             color: var(--text-secondary);
             border-top: 1px solid #333;
         }
 
+        .faq-content ol, .faq-content ul { margin: 10px 0 0 20px; }
+        .faq-content li { margin-bottom: 6px; }
+
         /* --- Footer --- */
         footer {
             text-align: center;
-            padding: 40px;
+            padding: 40px 16px;
             color: var(--text-secondary);
             font-size: 0.9rem;
             border-top: 1px solid #222;
         }
 
+        footer a { color: var(--text-secondary); }
+
         @media (min-width: 768px) {
             .feature-grid { grid-template-columns: 1fr 1fr; }
             .feature-card.full-width { grid-column: span 2; }
+        }
+
+        @media (max-width: 600px) {
+            /* setup table: one feature per block instead of two cramped columns */
+            table.setup, table.setup tbody, table.setup tr, table.setup th, table.setup td { display: block; width: 100%; }
+            table.setup tr { border-bottom: 1px solid #333; padding: 10px 0; }
+            table.setup th, table.setup td { border: none; padding: 4px 0; }
+            table.setup th { color: #fff; }
+        }
+
+        @media (max-width: 480px) {
+            .btn { padding: 13px 24px; }
+            h2 { font-size: 1.6rem; padding-left: 14px; }
+            .tab-btn { padding: 8px 14px; font-size: 0.95rem; }
+            .os-box { padding: 18px; }
         }
     </style>
 </head>
@@ -389,277 +421,300 @@
 
     <header>
         <h1>Use As PC Server</h1>
-        <p class="subtitle">Turn your phone into a high-performance Webcam, Mic, Mouse, and Gamepad.</p>
-        
+        <p class="subtitle">Turn your Android phone into a touchpad, keyboard, gamepad, webcam, microphone, speaker and second screen for your PC, over Wi-Fi or USB.</p>
+
         <div class="btn-group">
             <div>
-                <a href="https://manjeetdeswal.github.io/portfolio/" target="_blank" class="btn btn-accent">More Apps</a>
-                <p style="margin-top: 5px; font-size: 0.8rem; color: #666;">Developer Portfolio</p>
+                <a href="https://play.google.com/store/apps/details?id=com.jeet_studio.use_as" target="_blank" rel="noopener" class="btn btn-primary">Get the Android App</a>
+                <p class="btn-caption">Google Play</p>
             </div>
             <div>
-                <a href="https://github.com/manjeetdeswal/Use-As-Server/releases/download/v2.1/UseAs_Setup_v2.1.exe" class="btn btn-primary">Download for Windows</a>
-                <p style="margin-top: 5px; font-size: 0.8rem; color: #666;">v2.1 .exe</p>
+                <a href="https://github.com/manjeetdeswal/Use-As-Server/releases/download/v2.1/UseAs_Setup_v2.1.exe" data-asset="win-setup" class="btn btn-windows">Download for Windows</a>
+                <p class="btn-caption"><span data-version>v2.1</span> • installer .exe • Windows 10/11 64-bit</p>
             </div>
             <div>
-                <a href="https://github.com/manjeetdeswal/Use-As-Server/releases/download/v2.1/UseAsServer_v2.1_mac_arm64.dmg" class="btn btn-mac">Download for macOS</a>
-                <p style="margin-top: 5px; font-size: 0.8rem; color: #666;">v2.1 • .zip • Apple Silicon & Intel</p>
+                <a href="#download" class="btn btn-mac">Download for macOS</a>
+                <p class="btn-caption"><span data-version>v2.1</span> • .dmg • Apple silicon &amp; Intel</p>
             </div>
             <div>
-                <a href="https://github.com/manjeetdeswal/Use-As-Server/releases/download/v2.1/UseAsServer_v2.0_Fixed_linux_x86_64.tar.gz" class="btn btn-linux">Download for Ubuntu</a>
-                <p style="margin-top: 5px; font-size: 0.8rem; color: #666;">v2.1 • .deb • Debian/Ubuntu</p>
+                <a href="#download" class="btn btn-linux">Download for Linux</a>
+                <p class="btn-caption"><span data-version>v2.1</span> • .tar.gz &amp; Flatpak • x86-64</p>
             </div>
-            <div>
-                <a href="https://github.com/manjeetdeswal/Use-As-Server/releases/download/1.5/use-as-server-1.5-2.x86_64.rpm" class="btn btn-fedora">Download for Fedora</a>
-                <p style="margin-top: 5px; font-size: 0.8rem; color: #666;">v1.5 • .rpm • Fedora/RHEL</p>
-            </div>
+        </div>
+        <div class="btn-group" style="margin-top: 25px;">
+            <a href="https://manjeetdeswal.github.io/portfolio/" target="_blank" rel="noopener" class="btn btn-secondary btn-small">More Apps by the Developer</a>
         </div>
     </header>
 
     <div class="container">
 
-        <h2>Installation & Setup</h2>
-        <div class="tab-buttons">
-            <button class="tab-btn active" data-os="windows" onclick="openTab('windows')">Windows</button>
-            <button class="tab-btn" data-os="macos" onclick="openTab('macos')">macOS</button>
-            <button class="tab-btn" data-os="linux" onclick="openTab('linux')">Debian/Ubuntu</button>
-            <button class="tab-btn" data-os="fedora" onclick="openTab('fedora')">Fedora/RHEL</button>
-        </div>
+        <!-- ================= DOWNLOADS ================= -->
+        <section id="download">
+            <h2>Downloads</h2>
+            <p class="lead">You need two things: the <strong>Use As app</strong> on your phone and the <strong>Use As Server</strong> on your computer.</p>
 
-        <section id="windows" class="tab-content active">
-            <div class="steps">
-                <div class="step-card">
-                    <div class="step-num">1</div>
-                    <h3>Run Installer</h3>
-                    <p>Run the setup file to install the main Server application.</p>
-                    <div class="note warning">
-                        <strong>Important:</strong> Drivers are <u>NOT</u> included. Please download Unity & usbmmidd drivers below.
-                    </div>
-                </div>
-                <div class="step-card">
-                    <div class="step-num">2</div>
-                    <h3>Get Drivers</h3>
-                    <p>For full features (Mic, Screen Extension), download the required drivers from the section below.</p>
-                </div>
-                <div class="step-card">
-                    <div class="step-num">3</div>
-                    <h3>Start Server</h3>
-                    <p>Open <strong>Use As Server</strong> on PC and click <strong>▶ Start Server</strong>.</p>
-                    <p>Open the Android app to auto-connect.</p>
-                </div>
-            </div>
-        </section>
-
-        <section id="macos" class="tab-content">
-            <div class="os-box mac-box">
-                <h3 style="color: var(--mac-color);">1. Install the Application</h3>
-                <p>Extract the downloaded <code>.zip</code> file and drag the <strong>UseAs Server</strong> app directly into your <strong>Applications</strong> folder. Double-click it to run.</p>
-                <div class="note warning">
-                    <strong>Crucial Security Step:</strong> Apple requires you to grant permissions. Go to <em>System Settings > Privacy & Security</em> and ensure UseAs Server is toggled <strong>ON</strong> under both <strong>Accessibility</strong> and <strong>Screen Recording.         (Gamepad does not work on Mac).   </strong>.
-                </div>
-            </div>
-
-            <div class="os-box mac-box">
-                <h3 style="color: var(--mac-color);">2. System Drivers (Optional Features)</h3>
-                <p>macOS strictly sandboxes audio and video. To use your phone as a Camera, Mic, or Second Display, you must install these free community drivers:</p>
-                <ul style="margin-left: 20px; margin-top: 10px; color: var(--text-secondary);">
-                    <li style="margin-bottom: 8px;"><strong>Microphone:</strong> Download <a href="https://existential.audio/blackhole/" target="_blank" style="color: var(--accent);">BlackHole 2ch</a>. Once installed, go to Mac Sound Settings and set your Input to BlackHole.</li>
-
-    <li style="margin-bottom: 8px;"><strong>Speaker:</strong> Download <a href="https://existential.audio/blackhole/" target="_blank" style="color: var(--accent);">BlackHole 2ch</a>. Once installed, go to Mac Sound Settings and set your Output to BlackHole.</li>
-
-                    <li style="margin-bottom: 8px;"><strong>Camera:</strong> Download <a href="https://obsproject.com/" target="_blank" style="color: var(--accent);">OBS Studio</a>. Open OBS and click "Start Virtual Camera" to install the required system extension.</li>
-                    <li><strong>Display Extension:</strong> Download <a href="https://github.com/waydabber/BetterDisplay" target="_blank" style="color: var(--accent);">BetterDisplay</a> to create a virtual dummy display to cast to your phone.</li>
-                </ul>
-            </div>
-        </section>
-
-        <section id="linux" class="tab-content">
-            <div class="os-box linux-box">
-                <h3 style="color: var(--linux-color);">1. Install the Application</h3>
-                <p>First, remove any old version to prevent conflicts:</p>
-                <div class="terminal">sudo apt remove use-as-server</div>
-                <p>Then, open your terminal in the folder where you downloaded the <code>.deb</code> file and install (overriding directory warnings if they occur):</p>
-                <div class="terminal">sudo apt update
-sudo dpkg -i --force-overwrite ./useas-build_1.5.deb
-sudo apt --fix-broken install</div>
-                <p class="note">(Restart is required for everything to work properly) This will automatically install dependencies like <code>python3</code>, <code>xdotool</code>, and <code>ffmpeg</code>.</p>
-            </div>
-
-            <div class="os-box linux-box">
-                <h3 style="color: var(--linux-color);">2. Audio Configuration (Manual Setup)</h3>
-                <p>The server creates a virtual microphone and speaker, but sometimes Linux does not switch to them automatically. We use <strong>PulseAudio Volume Control (pavucontrol)</strong> to manage this.</p>
-                
-                <div style="margin-top: 15px;">
-                    <strong>Step A: Install Control Tool</strong>
-                    <div class="terminal">sudo apt install pavucontrol
-pavucontrol</div>
-                </div>
-
-                <div style="margin-top: 15px;">
-                    <strong>Step B: Configure Microphone</strong>
-                    <ol style="margin-left:20px; color:var(--text-secondary);">
-                        <li>Open the app you want to use (e.g., Discord or Zoom).</li>
-                        <li>Open <strong>pavucontrol</strong> and go to the <strong>"Recording"</strong> tab.</li>
-                        <li>Find your app (e.g., Discord) in the list.</li>
-                        <li>Change the input source button from <em>"Built-in Audio"</em> to <strong>"Monitor of UseAs_Mic"</strong> or <strong>"UseAs_Mic"</strong>.</li>
-                    </ol>
-                </div>
-
-                <div style="margin-top: 15px;">
-                    <strong>Step C: Configure Speaker (Hear PC on Phone)</strong>
-                    <ol style="margin-left:20px; color:var(--text-secondary);">
-                        <li>Start the Audio Stream on the Use As phone app.</li>
-                        <li>In <strong>pavucontrol</strong>, go to the <strong>"Playback"</strong> tab.</li>
-                        <li>Find <strong>"Use As Server"</strong> (or python3).</li>
-                        <li>Change its Output device to <strong>"UseAs_Mic"</strong> or your desired sink if you want to route specific app audio.</li>
-                    </ol>
-                </div>
-            </div>
-
-            <div class="os-box linux-box">
-                <h3 style="color: var(--linux-color);">3. Camera Setup (v4l2loopback)</h3>
-                <p>To use the phone camera as a webcam on Linux, the kernel module must be loaded.</p>
-                <div class="terminal">sudo modprobe v4l2loopback exclusive_caps=1 card_label="UseAs Cam"</div>
-                <p class="note">If this command fails, install the headers: <code>sudo apt install v4l2loopback-dkms</code></p>
-            </div>
-        </section>
-
-        <section id="fedora" class="tab-content">
-            <div class="os-box fedora-box">
-                <h3 style="color: var(--fedora-color);">1. Install the Application</h3>
-                <p>Using the provided <code>.rpm</code> package from the downloads section above.</p>
-                
-                <div style="margin-top: 15px;">
-                    <strong>Step A: Remove the old version</strong>
-                    <p style="font-size:0.9rem; color:var(--text-secondary); margin-bottom:5px;">Crucial to avoid case-sensitivity or old file conflicts.</p>
-                    <div class="terminal">sudo dnf remove Use-As-Server</div>
-                </div>
-
-                <div style="margin-top: 15px;">
-                    <strong>Step B: Install new package (Override Directory Warnings)</strong>
-                    <p style="font-size:0.9rem; color:var(--text-secondary); margin-bottom:5px;">Converted packages often trigger filesystem metadata errors. Use this to bypass them:</p>
-                    <div class="terminal">sudo rpm -ivh --replacefiles use-as-server-1.5-2.noarch.rpm</div>
-                    <div class="note warning">
-                        <strong>Still failing?</strong> If RPM continues to block the installation due to system directory metadata conflicts, use the force flag:
-                        <br><code>sudo rpm -ivh --force use-as-server-1.5-2.noarch.rpm</code>
-                    </div>
-                </div>
-
-                <div class="note" style="margin-top: 25px;">
-                    <strong>Note for Developers:</strong> If an RPM is not provided in a future update and you need to compile it yourself from a Debian package, you can convert it manually using Alien:
-                    <div class="terminal" style="margin-top: 10px;">sudo dnf install epel-release alien
-sudo alien -r -c your_package.deb</div>
-                </div>
-            </div>
-
-            <div class="os-box fedora-box">
-                <h3 style="color: var(--fedora-color);">2. Audio Configuration (Manual Setup)</h3>
-                <p>Just like Ubuntu, Fedora requires <strong>PulseAudio Volume Control (pavucontrol)</strong> to manually route the virtual audio.</p>
-                
-                <div style="margin-top: 15px;">
-                    <strong>Step A: Install Control Tool</strong>
-                    <div class="terminal">sudo dnf install pavucontrol
-pavucontrol</div>
-                </div>
-                <div style="margin-top: 15px;">
-                    <strong>Step B: Route Audio</strong>
-                    <ol style="margin-left:20px; color:var(--text-secondary);">
-                        <li>Open the <strong>pavucontrol</strong> interface.</li>
-                        <li><strong>For Mic:</strong> Go to the "Recording" tab and set your target app (e.g., Discord) to listen to "UseAs_Mic".</li>
-                        <li><strong>For Speaker:</strong> Go to the "Playback" tab and set the Python app's output to your desired sink.</li>
-                    </ol>
-                </div>
-            </div>
-
-            <div class="os-box fedora-box">
-                <h3 style="color: var(--fedora-color);">3. Camera Setup (v4l2loopback)</h3>
-                <p>To use the phone camera as a webcam, ensure you have the `v4l2loopback` package installed via dnf, then load the kernel module:</p>
-                <div class="terminal">sudo modprobe v4l2loopback exclusive_caps=1 card_label="UseAs Cam"</div>
-            </div>
-        </section>
-
-        <section>
-            <h2>Windows Drivers (Essential)</h2>
             <div class="downloads-grid">
-                
-                <div class="download-card">
+                <div class="download-card android">
                     <div>
-                        <span class="icon">🎮</span>
-                        <h3>Gamepad Driver</h3>
-                        <p style="font-size:0.9rem; color:var(--warning); margin-bottom:10px;">(Comes with installer)</p>
-                        <p>Required for Controller mode.</p>
+                        <span class="icon">📱</span>
+                        <h3>Android App</h3>
+                        <p>The phone side. Also controls an Android TV on its own.</p>
                     </div>
-                    <a href="https://github.com/nefarius/ViGEmBus/releases/latest" target="_blank" class="btn btn-secondary">Get ViGEmBus</a>
+                    <a href="https://play.google.com/store/apps/details?id=com.jeet_studio.use_as" target="_blank" rel="noopener" class="btn btn-primary btn-small">Google Play</a>
                 </div>
 
                 <div class="download-card">
                     <div>
-                        <span class="icon">🖥️</span>
-                        <h3>Display Driver</h3>
-                        <p style="font-size:0.9rem; color:var(--text-secondary); margin-bottom:10px;">(usbmmidd_v2)</p>
-                        <p>Required for Second Screen.</p>
+                        <span class="icon">🪟</span>
+                        <h3>Windows Installer</h3>
+                        <p>Recommended. Installs the gamepad and virtual monitor drivers and the firewall rules.</p>
+                        <p class="file" data-file="win-setup">UseAs_Setup_v2.1.exe</p>
                     </div>
-                    <a href="https://www.amyuni.com/downloads/usbmmidd_v2.zip" target="_blank" class="btn btn-secondary">Get usbmmidd</a>
+                    <a href="https://github.com/manjeetdeswal/Use-As-Server/releases/download/v2.1/UseAs_Setup_v2.1.exe" data-asset="win-setup" class="btn btn-windows btn-small">Download</a>
                 </div>
 
                 <div class="download-card">
                     <div>
-                        <span class="icon">📸</span>
-                        <h3>Camera Driver</h3>
-                        <p style="font-size:0.9rem; color:var(--text-secondary); margin-bottom:10px;">(Unity Capture)</p>
-                        <p>Required for Webcam mode.</p>
+                        <span class="icon">🧳</span>
+                        <h3>Windows Portable</h3>
+                        <p>Runs without installing. Drivers and firewall rules are not set up for you.</p>
+                        <p class="file" data-file="win-portable">UseAsServer_v2.1_portable.exe</p>
                     </div>
-                    <a href="https://github.com/schellingb/UnityCapture" target="_blank" class="btn btn-secondary">Get Unity Capture</a>
+                    <a href="https://github.com/manjeetdeswal/Use-As-Server/releases/download/v2.1/UseAsServer_v2.1_portable.exe" data-asset="win-portable" class="btn btn-secondary btn-small">Download</a>
                 </div>
 
                 <div class="download-card">
                     <div>
-                        <span class="icon">🎤</span>
-                        <h3>Virtual Mic</h3>
-                        <p style="font-size:0.9rem; color:var(--text-secondary); margin-bottom:10px;">(VB-Cable)</p>
-                        <p>Required for Microphone.</p>
+                        <span class="icon">🍎</span>
+                        <h3>macOS (Apple silicon)</h3>
+                        <p>For M1, M2, M3, M4 and newer Macs.</p>
+                        <p class="file" data-file="mac-arm">UseAsServer_v2.1_mac_arm64.dmg</p>
                     </div>
-                    <a href="https://vb-audio.com/Cable/" target="_blank" class="btn btn-secondary">Get VB-Cable</a>
+                    <a href="https://github.com/manjeetdeswal/Use-As-Server/releases/download/v2.1/UseAsServer_v2.1_mac_arm64.dmg" data-asset="mac-arm" class="btn btn-mac btn-small">Download</a>
                 </div>
 
+                <div class="download-card">
+                    <div>
+                        <span class="icon">🍏</span>
+                        <h3>macOS (Intel)</h3>
+                        <p>For Macs with an Intel processor.</p>
+                        <p class="file" data-file="mac-intel">UseAsServer_v2.1_mac_x86_64.dmg</p>
+                    </div>
+                    <a href="https://github.com/manjeetdeswal/Use-As-Server/releases/download/v2.1/UseAsServer_v2.1_mac_x86_64.dmg" data-asset="mac-intel" class="btn btn-mac btn-small">Download</a>
+                </div>
+
+                <div class="download-card">
+                    <div>
+                        <span class="icon">🐧</span>
+                        <h3>Linux (.tar.gz)</h3>
+                        <p>One file for Ubuntu, Mint, Debian, Fedora, Arch and others.</p>
+                        <p class="file" data-file="linux-tar">UseAsServer_v2.1_linux_x86_64.tar.gz</p>
+                    </div>
+                    <a href="https://github.com/manjeetdeswal/Use-As-Server/releases/latest" data-asset="linux-tar" class="btn btn-linux btn-small">Download</a>
+                </div>
+
+                <div class="download-card">
+                    <div>
+                        <span class="icon">📦</span>
+                        <h3>Linux Flatpak</h3>
+                        <p>Includes xdotool, xclip, wmctrl, playerctl and pactl, so nothing else to install.</p>
+                        <p class="file" data-file="flatpak">UseAsServer_v2.1_x86_64.flatpak</p>
+                    </div>
+                    <a href="https://github.com/manjeetdeswal/Use-As-Server/releases/latest" data-asset="flatpak" class="btn btn-flatpak btn-small">Download</a>
+                </div>
+            </div>
+
+            <p class="release-line">Latest release: <strong data-version>v2.1</strong> •
+                <a href="https://github.com/manjeetdeswal/Use-As-Server/releases" target="_blank" rel="noopener">All releases &amp; older versions</a> •
+                <a href="https://github.com/manjeetdeswal/Use-As-Server" target="_blank" rel="noopener">Source code</a></p>
+        </section>
+
+        <!-- ================= INSTALL ================= -->
+        <section id="install">
+            <h2>Installation &amp; Setup</h2>
+            <div class="tab-buttons" role="tablist">
+                <button class="tab-btn active" data-os="windows" onclick="openTab('windows')">Windows</button>
+                <button class="tab-btn" data-os="macos" onclick="openTab('macos')">macOS</button>
+                <button class="tab-btn" data-os="linux" onclick="openTab('linux')">Linux</button>
+            </div>
+
+            <!-- ---------- WINDOWS ---------- -->
+            <div id="windows" class="tab-content active">
+                <div class="steps">
+                    <div class="step-card">
+                        <div class="step-num">1</div>
+                        <h3>Run the Installer</h3>
+                        <p>Run <code data-file="win-setup">UseAs_Setup_v2.1.exe</code>. It installs:</p>
+                        <ul style="margin: 8px 0 0 20px; color: var(--text-secondary);">
+                            <li><strong>ViGEmBus</strong> gamepad driver</li>
+                            <li><strong>Virtual monitor driver</strong> (usbmmidd, ticked by default)</li>
+                            <li><strong>Windows Firewall rules</strong></li>
+                        </ul>
+                    </div>
+                    <div class="step-card">
+                        <div class="step-num">2</div>
+                        <h3>Optional Drivers</h3>
+                        <p>Only needed for these features:</p>
+                        <p>🎤 <strong>Microphone:</strong> <a href="https://vb-audio.com/Cable/" target="_blank" rel="noopener">VB-CABLE</a> (the installer opens its website at the end).</p>
+                        <p>📸 <strong>Webcam:</strong> <a href="https://obsproject.com/" target="_blank" rel="noopener">OBS Studio</a> (or <a href="https://github.com/schellingb/UnityCapture" target="_blank" rel="noopener">Unity Capture</a>).</p>
+                    </div>
+                    <div class="step-card">
+                        <div class="step-num">3</div>
+                        <h3>Start &amp; Connect</h3>
+                        <p>Open <strong>Use As Server</strong> and press <strong>START</strong> on the Dashboard.</p>
+                        <p>Open the Use As app on your phone (same Wi-Fi) and tap your PC under <strong>Nearby Computers</strong>, or use <strong>Pair with QR</strong>.</p>
+                    </div>
+                </div>
+                <div class="note">
+                    <strong>Tip:</strong> the server's <strong>Setup</strong> tab checks drivers, firewall and network and has buttons to fix what's missing. Using the <strong>portable .exe</strong>? Install <a href="https://github.com/nefarius/ViGEmBus/releases/latest" target="_blank" rel="noopener">ViGEmBus</a> yourself for the gamepad, and allow the app through the firewall when Windows asks.
+                </div>
+            </div>
+
+            <!-- ---------- MACOS ---------- -->
+            <div id="macos" class="tab-content">
+                <div class="os-box mac-box">
+                    <h3 style="color: var(--mac-color);">1. Install the App</h3>
+                    <p>Download the <code>.dmg</code> for your Mac (<strong>Apple silicon</strong> or <strong>Intel</strong>), open it and drag <strong>Use As Server.app</strong> into <strong>Applications</strong>.</p>
+                    <div class="note warning">
+                        <strong>First launch:</strong> the app isn't signed by Apple yet. Right-click the app › <strong>Open</strong> › <strong>Open</strong>. On newer macOS, if there's no Open button, go to <em>System Settings › Privacy &amp; Security</em> and click <strong>Open Anyway</strong>.
+                    </div>
+                </div>
+
+                <div class="os-box mac-box">
+                    <h3 style="color: var(--mac-color);">2. Permissions</h3>
+                    <p>In <em>System Settings › Privacy &amp; Security</em>, turn <strong>Use As Server</strong> on under:</p>
+                    <ul>
+                        <li><strong>Accessibility</strong> – mouse, keyboard and gamepad keys.</li>
+                        <li><strong>Screen Recording</strong> – second screen.</li>
+                    </ul>
+                    <p class="note">macOS asks for the microphone (to record BlackHole for PC sound) and for Automation (to read what Music or Spotify is playing) the first time they're used.</p>
+                </div>
+
+                <div class="os-box mac-box">
+                    <h3 style="color: var(--mac-color);">3. Free Drivers (Optional Features)</h3>
+                    <ul>
+                        <li><strong>🎤 Microphone &amp; 🔊 PC sound:</strong> install <a href="https://existential.audio/blackhole/" target="_blank" rel="noopener">BlackHole 2ch</a>.
+                            For the phone mic, choose <strong>BlackHole 2ch</strong> as the microphone in Zoom, Discord etc.
+                            To hear the Mac on the phone, set the Mac's sound <strong>Output</strong> to BlackHole 2ch (or a Multi-Output Device with BlackHole + your speakers, made in Audio MIDI Setup).</li>
+                        <li><strong>📸 Webcam:</strong> install <a href="https://obsproject.com/" target="_blank" rel="noopener">OBS Studio</a>, open it and click <strong>Start Virtual Camera</strong> once to install its camera extension.</li>
+                        <li><strong>🖥️ Extend the desktop:</strong> <a href="https://github.com/waydabber/BetterDisplay" target="_blank" rel="noopener">BetterDisplay</a> can add a virtual display; without it the phone mirrors your screen.</li>
+                    </ul>
+                </div>
+            </div>
+
+            <!-- ---------- LINUX ---------- -->
+            <div id="linux" class="tab-content">
+                <div class="note warning" style="margin: 0 0 25px;">
+                    <strong>Use an X11 (Xorg) session.</strong> Mouse, keyboard and the second screen use X11. Linux Mint uses X11 already; on Ubuntu and Fedora choose <em>"… on Xorg"</em> with the gear icon on the login screen.
+                </div>
+
+                <div class="os-box linux-box">
+                    <h3 style="color: var(--linux-color);">Option A: .tar.gz (all distributions)</h3>
+                    <p><strong>1. Unpack and run</strong> (in the folder you downloaded to):</p>
+                    <div class="terminal-wrap"><div class="terminal">tar -xzf <span data-file="linux-tar">UseAsServer_v2.1_linux_x86_64.tar.gz</span>
+chmod +x UseAsServer
+./UseAsServer</div></div>
+
+                    <p style="margin-top: 15px;"><strong>2. Install the tools it uses</strong> (keys, media info, clipboard, window list):</p>
+                    <p class="distro-label">Ubuntu / Mint / Debian</p>
+                    <div class="terminal-wrap"><div class="terminal">sudo apt install xdotool pulseaudio-utils playerctl xclip wmctrl</div></div>
+                    <p class="distro-label">Fedora</p>
+                    <div class="terminal-wrap"><div class="terminal">sudo dnf install xdotool pulseaudio-utils playerctl xclip wmctrl</div></div>
+                    <p class="distro-label">Arch / Manjaro</p>
+                    <div class="terminal-wrap"><div class="terminal">sudo pacman -S xdotool libpulse playerctl xclip wmctrl</div></div>
+                </div>
+
+                <div class="os-box flatpak-box">
+                    <h3 style="color: var(--flatpak-color);">Option B: Flatpak</h3>
+                    <p>The Flatpak already contains the tools above. It needs Flathub for its base (most distros have it):</p>
+                    <div class="terminal-wrap"><div class="terminal">flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+flatpak install --user <span data-file="flatpak">UseAsServer_v2.1_x86_64.flatpak</span>
+flatpak run com.jeetstudio.UseAsServer</div></div>
+                    <p class="note">After installing, <strong>Use As Server</strong> is also in your app menu. The webcam and gamepad steps below are still needed: a Flatpak can't load kernel modules.</p>
+                </div>
+
+                <div class="os-box linux-box">
+                    <h3 style="color: var(--linux-color);">Feature Setup</h3>
+                    <div class="table-scroll">
+                    <table class="setup">
+                        <tr>
+                            <th>📸 Webcam</th>
+                            <td>Install v4l2loopback (<code>sudo apt install v4l2loopback-dkms</code>; Fedora: <code>akmod-v4l2loopback</code> from RPM Fusion; Arch: <code>v4l2loopback-dkms</code>), then load it as <code>/dev/video10</code>:
+                                <div class="terminal-wrap"><div class="terminal">sudo modprobe v4l2loopback devices=1 video_nr=10 exclusive_caps=1 card_label="UseAs Cam"</div></div>
+                                Pick <strong>"UseAs Cam"</strong> in Zoom, Meet, OBS…</td>
+                        </tr>
+                        <tr>
+                            <th>🎤 Microphone</th>
+                            <td>Automatic: the server creates a virtual microphone. In your app (or <code>pavucontrol</code> › Recording) choose <strong>"Monitor of UseAs_Virtual_Microphone"</strong>.</td>
+                        </tr>
+                        <tr>
+                            <th>🔊 PC sound</th>
+                            <td>Automatic: whatever plays on your default output is sent to the phone. No setup.</td>
+                        </tr>
+                        <tr>
+                            <th>🎮 Gamepad</th>
+                            <td>Uses <code>/dev/uinput</code>. If games don't see it, allow access (until reboot):
+                                <div class="terminal-wrap"><div class="terminal">sudo chmod 666 /dev/uinput</div></div>
+                                To keep it after reboots:
+                                <div class="terminal-wrap"><div class="terminal">echo 'KERNEL=="uinput", MODE="0666"' | sudo tee /etc/udev/rules.d/99-uinput.rules
+sudo udevadm control --reload-rules &amp;&amp; sudo udevadm trigger</div></div></td>
+                        </tr>
+                        <tr>
+                            <th>🖥️ Second screen</th>
+                            <td>Mirrors your screen. Picking <em>Monitor 2</em> tries to add a virtual 1920×1080 output with <code>xrandr</code>; this only works on some graphics drivers.</td>
+                        </tr>
+                        <tr>
+                            <th>📋 Clipboard images</th>
+                            <td>Need <code>xclip</code> (included in the Flatpak).</td>
+                        </tr>
+                        <tr>
+                            <th>🔥 Firewall</th>
+                            <td>If you use one, allow TCP 8080, UDP 8081 and TCP 8082. With ufw:
+                                <div class="terminal-wrap"><div class="terminal">sudo ufw allow 8080/tcp &amp;&amp; sudo ufw allow 8081/udp &amp;&amp; sudo ufw allow 8082/tcp</div></div></td>
+                        </tr>
+                    </table>
+                    </div>
+                </div>
             </div>
         </section>
 
-        <section>
+        <!-- ================= FEATURES ================= -->
+        <section id="features">
             <h2>How to Use Features</h2>
             <div class="feature-grid">
 
                 <div class="feature-card">
                     <div class="feature-header">
                         <span class="feature-icon">🖱️</span>
-                        <h3>Mouse & Keyboard</h3>
-                        <span class="setup-tag tag-easy">Plug & Play</span>
+                        <h3>Touchpad &amp; Keyboard</h3>
+                        <span class="setup-tag tag-easy">Plug &amp; Play</span>
                     </div>
                     <div class="feature-body">
-                        <p>Turn your screen into a trackpad.</p>
-                        <br>
                         <ul>
-                            <li><strong>Move:</strong> Slide one finger.</li>
-                            <li><strong>Click:</strong> Tap once (Left click).</li>
-                            <li><strong>Right Click:</strong> Tap with two fingers.</li>
-                            <li><strong>Scroll:</strong> Drag with two fingers.</li>
+                            <li><strong>Move:</strong> slide one finger. <strong>Click:</strong> tap.</li>
+                            <li><strong>Right click:</strong> tap with two fingers, or tap the bottom-right corner.</li>
+                            <li><strong>Drag:</strong> hold one finger still for half a second, then move.</li>
+                            <li><strong>Two fingers:</strong> slide to scroll, pinch to zoom.</li>
+                            <li><strong>Three fingers:</strong> tap = middle click; swipe up = Task view, down = desktop, left/right = switch apps.</li>
+                            <li><strong>Keyboard:</strong> type in any language (voice typing works too), shortcut keys and your own key combos.</li>
                         </ul>
-                        <p style="font-size: 0.9rem; color: var(--warning);"><strong>macOS Users:</strong> Ensure 'Accessibility' permission is granted in System Settings.</p>
+                        <p class="note">Mouse not working in games or Task Manager on Windows? Turn on <em>Settings › Request admin rights</em> in the server.</p>
                     </div>
                 </div>
 
                 <div class="feature-card">
                     <div class="feature-header">
                         <span class="feature-icon">🖥️</span>
-                        <h3>Second Monitor</h3>
-                        <span class="setup-tag tag-req">Driver Req</span>
+                        <h3>Second Screen</h3>
+                        <span class="setup-tag tag-easy">Built-in (Windows)</span>
                     </div>
                     <div class="feature-body">
-                        <p>Extend your desktop workspace to your Android device.</p>
-                        <br>
+                        <p>Phone tab: <strong>Display</strong>. Pick a monitor and press start. H.264 streaming, up to 1080p at 60 fps.</p>
                         <ul>
-                            <li><strong>Windows:</strong> Download & Install <strong>usbmmidd_v2</strong>. Go to <em>Settings > System > Display > Extend these displays</em>.</li>
-                            <li><strong>macOS:</strong> Download & Install <strong>BetterDisplay</strong> to create a virtual dummy display. Go to <em>System Settings > Displays</em> to arrange it.</li>
-                            <li><strong>Linux:</strong> Works natively with X11/Wayland dummy displays.</li>
+                            <li><strong>Windows:</strong> pick a monitor the PC doesn't have (e.g. <em>Monitor 2</em> on a one-screen PC) and a real extra monitor is added, sized to your phone. It's removed ~20 s after you stop.</li>
+                            <li><strong>macOS:</strong> mirrors your screen; use <strong>BetterDisplay</strong> to extend it.</li>
+                            <li><strong>Linux:</strong> mirrors your screen; a virtual output via <code>xrandr</code> works on some drivers.</li>
+                            <li>For the smoothest picture use <strong>USB tethering</strong> (see Troubleshooting).</li>
                         </ul>
                     </div>
                 </div>
@@ -667,16 +722,14 @@ pavucontrol</div>
                 <div class="feature-card">
                     <div class="feature-header">
                         <span class="feature-icon">🎮</span>
-                        <h3>Gamepad (Xbox/PS)</h3>
-                        <span class="setup-tag tag-easy">Auto-Map</span>
+                        <h3>Gamepad</h3>
+                        <span class="setup-tag tag-easy">Auto</span>
                     </div>
                     <div class="feature-body">
-                        <p>Play PC games using your phone as a controller.</p>
-                        <br>
                         <ul>
-                            <li><strong>Windows:</strong> Emulates an Xbox 360 controller natively (Requires ViGEmBus driver).</li>
-                            <li><strong>Linux:</strong> Handled automatically via <code>uinput</code>.</li>
-                            <li><strong style="color: var(--warning);">macOS 🚫 Not Supported:</strong> Native controllers are strictly blocked by Apple. Gamepad mode does not currently work on Mac.</li>
+                            <li><strong>Windows:</strong> games see an <strong>Xbox 360 controller</strong> (ViGEmBus, installed by the installer). Up to 4 phones, each its own player (P1–P4), with rumble and tilt steering.</li>
+                            <li><strong>Linux:</strong> a virtual controller through <code>uinput</code> (see Linux setup).</li>
+                            <li><strong>macOS:</strong> no virtual controllers on Mac, so buttons are sent as keyboard keys (WASD and arrows).</li>
                         </ul>
                     </div>
                 </div>
@@ -688,12 +741,11 @@ pavucontrol</div>
                         <span class="setup-tag tag-req">Driver Req</span>
                     </div>
                     <div class="feature-body">
-                        <p>Use your phone as a high-quality wireless PC mic.</p>
-                        <br>
+                        <p>Phone tab: <strong>Microphone</strong>. Noise suppression and auto gain are in the app.</p>
                         <ul>
-                            <li><strong>Windows:</strong> Install <strong>VB-Cable</strong>. In Zoom/Discord, set Input Device to <strong>"CABLE Output"</strong>.</li>
-                            <li><strong>macOS:</strong> Install <strong>BlackHole 2ch</strong>. In Zoom/Discord, set Input Device to <strong>"BlackHole 2ch"</strong>.</li>
-                            <li><strong>Linux:</strong> Use <strong>pavucontrol</strong> to route your meeting app to "UseAs_Mic".</li>
+                            <li><strong>Windows:</strong> install <strong>VB-CABLE</strong>; in Zoom/Discord choose <strong>"CABLE Output"</strong> as the microphone.</li>
+                            <li><strong>macOS:</strong> install <strong>BlackHole 2ch</strong>; choose <strong>"BlackHole 2ch"</strong> as the microphone.</li>
+                            <li><strong>Linux:</strong> nothing to install; choose <strong>"Monitor of UseAs_Virtual_Microphone"</strong>.</li>
                         </ul>
                     </div>
                 </div>
@@ -705,12 +757,11 @@ pavucontrol</div>
                         <span class="setup-tag tag-req">Driver Req</span>
                     </div>
                     <div class="feature-body">
-                        <p>Stream your phone camera to your PC for meetings or streaming.</p>
-                        <br>
+                        <p>Phone tab: <strong>Camera</strong>. Camera Studio on the PC adds background blur or a picture behind you, mirror and brightness.</p>
                         <ul>
-                            <li><strong>Windows:</strong> Install <strong>Unity Capture</strong>. In Zoom/OBS, select <strong>"Unity Video Capture"</strong>.</li>
-                            <li><strong>macOS:</strong> Install <strong>OBS Studio</strong>. Open OBS, click "Start Virtual Camera", then select <strong>"OBS Virtual Camera"</strong> in Zoom.</li>
-                            <li><strong>Linux:</strong> Ensure <strong>v4l2loopback</strong> is running. Select "UseAs Cam" in your app.</li>
+                            <li><strong>Windows:</strong> install <strong>OBS Studio</strong> and pick <strong>"OBS Virtual Camera"</strong> (or Unity Capture › <strong>"Unity Video Capture"</strong>).</li>
+                            <li><strong>macOS:</strong> install <strong>OBS Studio</strong>, click "Start Virtual Camera" once, then pick <strong>"OBS Virtual Camera"</strong>.</li>
+                            <li><strong>Linux:</strong> load <strong>v4l2loopback</strong> as <code>/dev/video10</code> (see Linux setup) and pick <strong>"UseAs Cam"</strong>.</li>
                         </ul>
                     </div>
                 </div>
@@ -718,17 +769,15 @@ pavucontrol</div>
                 <div class="feature-card">
                     <div class="feature-header">
                         <span class="feature-icon">🔊</span>
-                        <h3>PC Speaker</h3>
+                        <h3>PC Sound on the Phone</h3>
                         <span class="setup-tag tag-easy">Built-in</span>
                     </div>
                     <div class="feature-body">
-                        <p>Listen to PC audio on your phone wirelessly.</p>
-                        <br>
+                        <p>Phone tab: <strong>Speaker</strong>, turn the switch on. The phone also shows the title, artist and cover of what's playing, with play/pause, next and previous.</p>
                         <ul>
-                            <li><strong>Windows:</strong> Enable "Stereo Mix" in Windows Sound Settings.</li>
-                            <li><strong>macOS:</strong> Use <strong>BlackHole 2ch</strong> to route system output to the UseAs Server.</li>
-                            <li><strong>Linux:</strong> Use <strong>pavucontrol</strong> to set UseAs Server output to your desired sink.</li>
-                            <li><strong>Auto-Stop:</strong> Streaming stops automatically when you close the app.</li>
+                            <li><strong>Windows &amp; Linux:</strong> works as is, no Stereo Mix or routing needed.</li>
+                            <li><strong>macOS:</strong> needs <strong>BlackHole 2ch</strong> as the sound output.</li>
+                            <li>Hearing it twice? Mute the PC; the phone keeps playing. Lag: set the buffer to Low.</li>
                         </ul>
                     </div>
                 </div>
@@ -736,16 +785,48 @@ pavucontrol</div>
                 <div class="feature-card full-width">
                     <div class="feature-header">
                         <span class="feature-icon">📂</span>
-                        <h3>File Transfer & Clipboard Sync</h3>
+                        <h3>Files &amp; Clipboard</h3>
                         <span class="setup-tag tag-easy">Easy</span>
                     </div>
                     <div class="feature-body">
-                        <p>Send photos, videos, or text seamlessly across all operating systems.</p>
-                        <br>
                         <ul>
-                            <li><strong>Phone to PC:</strong> Select file in app > Send. Saves to <code>Downloads/UseAs_Received</code>.</li>
-                            <li><strong>PC to Phone:</strong> Click the "Send File" button in the UseAs Server app on your computer.</li>
-                            <li><strong>Clipboard:</strong> Copy text on one device, it auto-copies to the other instantly.</li>
+                            <li><strong>PC to phone:</strong> server's <strong>Sharing</strong> tab › <em>Choose files…</em>, drag files onto the window, or right-click a file › <em>Send to › Use As (phone)</em> (Windows) / <em>Scripts › Send to phone (Use As)</em> (Nautilus).</li>
+                            <li><strong>Phone to PC:</strong> share any file to <em>"Send to PC"</em>, or use the app's Files tab. Files are saved in <code>Downloads/UseAs_Received</code>.</li>
+                            <li><strong>Browse the PC:</strong> the phone's PC tab opens the PC's files: download (folders as .zip), upload, rename, delete, and play photos, videos and music straight from the PC.</li>
+                            <li><strong>Clipboard:</strong> turn on <em>Auto-sync</em>: text, images and copied files go to the phone automatically. Phone to PC is sent while the app is open, or with <em>"Send clipboard to PC"</em> on the notification or Quick Settings tile. The last 20 texts are kept in a history.</li>
+                        </ul>
+                    </div>
+                </div>
+
+                <div class="feature-card">
+                    <div class="feature-header">
+                        <span class="feature-icon">🧰</span>
+                        <h3>PC Controls</h3>
+                        <span class="setup-tag tag-easy">Built-in</span>
+                    </div>
+                    <div class="feature-body">
+                        <ul>
+                            <li>Lock, screen off, sleep, hibernate, restart, shut down and sign out, also on a timer ("sleep in 1 hour").</li>
+                            <li>PC volume, per-app volume and screen brightness.</li>
+                            <li>Open apps, switch, minimise or close windows.</li>
+                            <li>Live CPU, memory, GPU (NVIDIA), disk, battery and network stats.</li>
+                        </ul>
+                        <p class="note">Per-app volume and the extra monitor are Windows only for now.</p>
+                    </div>
+                </div>
+
+                <div class="feature-card">
+                    <div class="feature-header">
+                        <span class="feature-icon">🎛️</span>
+                        <h3>Deck, Presenter &amp; Notifications</h3>
+                        <span class="setup-tag tag-easy">Built-in</span>
+                    </div>
+                    <div class="feature-body">
+                        <ul>
+                            <li><strong>Deck:</strong> Stream-Deck-style buttons that open apps, files and websites, press key combos, type text or run commands.</li>
+                            <li><strong>Present:</strong> big Next/Previous, volume keys turn slides, laser pointer and a talk timer.</li>
+                            <li><strong>Notifications &amp; calls:</strong> see the phone's notifications and calls on the PC, reply to messages and answer or decline calls.</li>
+                            <li><strong>Phone shortcuts:</strong> Quick Settings tiles and a home-screen widget (play/pause, mute, lock, touchpad).</li>
                         </ul>
                     </div>
                 </div>
@@ -753,35 +834,67 @@ pavucontrol</div>
             </div>
         </section>
 
-        <section>
+        <!-- ================= TROUBLESHOOTING ================= -->
+        <section id="help">
             <h2>Troubleshooting</h2>
             <details>
-                <summary>⚠️ Phone cannot find PC (Stuck on Scanning)</summary>
+                <summary>⚠️ Phone can't find the PC (stuck on scanning)</summary>
                 <div class="faq-content">
-                    <p>This is usually a Windows/Linux Firewall issue.</p>
-                    <ol style="margin-left: 20px; margin-top: 10px;">
-                        <li><strong>Windows:</strong> Search for <em>"Allow an app through Windows Firewall"</em> > Change Settings > Check BOTH Private and Public for <code>UseAsServer.exe</code>.</li>
-                        <li><strong>macOS:</strong> Ensure you are on the same Wi-Fi network and your router does not have "AP Isolation" enabled.</li>
+                    <ol>
+                        <li>Phone and PC must be on the <strong>same Wi-Fi</strong> (or the phone's hotspot). Office, college and guest networks often block devices from seeing each other.</li>
+                        <li><strong>Windows:</strong> open the server's <strong>Setup</strong> tab and use the Firewall fix, or search <em>"Allow an app through Windows Firewall"</em> and tick Private and Public for <code>UseAsServer.exe</code>.</li>
+                        <li><strong>Linux:</strong> allow TCP 8080, UDP 8081 and TCP 8082 in your firewall.</li>
+                        <li>Use <strong>Pair with QR</strong> on the Dashboard, or type the address shown there (<code>ws://…:8080</code>) in the app.</li>
+                        <li>Android 17: allow <em>"Nearby devices / local network"</em> when the app asks.</li>
                     </ol>
                 </div>
             </details>
             <details>
-                <summary>🐧 Linux: Audio not routing?</summary>
+                <summary>🔌 Lag, stutter or disconnects: use USB tethering</summary>
                 <div class="faq-content">
-                    <p>Refer to the <strong>Linux Setup</strong> section above. You MUST use <code>pavucontrol</code> to manually tell apps (like Discord) to listen to the "UseAs_Mic" instead of your built-in microphone.</p>
+                    <ol>
+                        <li>Connect the phone with a USB cable that carries data.</li>
+                        <li>On the phone: <em>Settings › Network &amp; internet › Hotspot &amp; tethering › USB tethering</em>: on.</li>
+                        <li>In the app, tap the PC labelled <strong>"USB Tethering"</strong>. If Windows asks, choose a Private network.</li>
+                    </ol>
+                    <p style="margin-top: 10px;">Disconnects when the phone screen turns off? Set Use As to <strong>Unrestricted</strong> battery use in Android settings.</p>
                 </div>
             </details>
             <details>
-                <summary>🎤 Microphone not working in Discord</summary>
+                <summary>🎤 Microphone not working in Discord / Zoom</summary>
                 <div class="faq-content">
-                    <p>Ensure you have selected <strong>"CABLE Output"</strong> (Windows) or <strong>"BlackHole 2ch"</strong> (macOS) as your Input Device in Discord settings, not "Default".</p>
+                    <p>Select the virtual mic as the input device, not "Default": <strong>"CABLE Output"</strong> (Windows), <strong>"BlackHole 2ch"</strong> (macOS) or <strong>"Monitor of UseAs_Virtual_Microphone"</strong> (Linux).</p>
+                </div>
+            </details>
+            <details>
+                <summary>🐧 Linux: webcam or gamepad not working</summary>
+                <div class="faq-content">
+                    <ul>
+                        <li><strong>Webcam:</strong> the camera must be <code>/dev/video10</code>. Unload and load it again with <code>video_nr=10</code>:
+                            <div class="terminal-wrap"><div class="terminal">sudo modprobe -r v4l2loopback
+sudo modprobe v4l2loopback devices=1 video_nr=10 exclusive_caps=1 card_label="UseAs Cam"</div></div></li>
+                        <li><strong>Gamepad:</strong> run <code>sudo chmod 666 /dev/uinput</code>, then reconnect.</li>
+                        <li><strong>Mouse or second screen do nothing:</strong> log in with an X11 (Xorg) session, not Wayland.</li>
+                    </ul>
                 </div>
             </details>
             <details>
                 <summary>🎮 Controller connected but not moving in game</summary>
                 <div class="faq-content">
-                    <p>Some PC games strictly require an "Xbox 360 Controller". Switch the layout to Xbox in the Android app. Restart the game after connecting.</p>
-                    <p><strong>Windows Note:</strong> Ensure you have installed the ViGEmBus driver from the Downloads section above.</p>
+                    <p>Some games only accept an Xbox 360 controller: switch the layout to Xbox in the app and restart the game after connecting.</p>
+                    <p style="margin-top: 8px;"><strong>Windows:</strong> check the server's Setup tab shows ViGEmBus as installed (the portable version doesn't install it).</p>
+                </div>
+            </details>
+            <details>
+                <summary>🍎 macOS: "app can't be opened" or mouse doesn't move</summary>
+                <div class="faq-content">
+                    <p>Right-click the app › Open, or <em>System Settings › Privacy &amp; Security › Open Anyway</em>. Then make sure Use As Server is on under <strong>Accessibility</strong> and <strong>Screen Recording</strong>, and restart the app.</p>
+                </div>
+            </details>
+            <details>
+                <summary>📝 Still stuck?</summary>
+                <div class="faq-content">
+                    <p>The <strong>Activity log</strong> on the server's Dashboard says what went wrong, and the <strong>How to use</strong> tab explains every feature. You can also <a href="https://github.com/manjeetdeswal/Use-As-Server/issues" target="_blank" rel="noopener">open an issue on GitHub</a>.</p>
                 </div>
             </details>
         </section>
@@ -789,27 +902,77 @@ pavucontrol</div>
     </div>
 
     <footer>
-        <p>&copy; 2026 Use As. Built for Android, Windows, macOS & Linux.</p>
+        <p>&copy; 2026 Use As • <a href="https://github.com/manjeetdeswal/Use-As-Server" target="_blank" rel="noopener">GitHub</a> • <a href="https://play.google.com/store/apps/details?id=com.jeet_studio.use_as" target="_blank" rel="noopener">Google Play</a></p>
+        <p>Built for Android, Windows, macOS &amp; Linux.</p>
     </footer>
 
     <script>
         function openTab(osName) {
-            // Hide all tab content
-            let tabContents = document.getElementsByClassName("tab-content");
-            for (let i = 0; i < tabContents.length; i++) {
-                tabContents[i].classList.remove("active");
-            }
-
-            // Remove active class from all buttons
-            let tabButtons = document.getElementsByClassName("tab-btn");
-            for (let i = 0; i < tabButtons.length; i++) {
-                tabButtons[i].classList.remove("active");
-            }
-
-            // Show current tab and add active class to clicked button
+            document.querySelectorAll(".tab-content").forEach(el => el.classList.remove("active"));
+            document.querySelectorAll(".tab-btn").forEach(el => el.classList.remove("active"));
             document.getElementById(osName).classList.add("active");
             document.querySelector(`button[data-os='${osName}']`).classList.add("active");
         }
+
+        // Open the visitor's own system's tab.
+        (function () {
+            const p = (navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform || navigator.userAgent;
+            if (/mac/i.test(p)) openTab("macos");
+            else if (/linux|x11/i.test(p) && !/android/i.test(navigator.userAgent)) openTab("linux");
+        })();
+
+        // Copy buttons on the terminal boxes.
+        document.querySelectorAll(".terminal-wrap").forEach(wrap => {
+            const btn = document.createElement("button");
+            btn.className = "copy-btn";
+            btn.textContent = "Copy";
+            btn.addEventListener("click", () => {
+                const text = wrap.querySelector(".terminal").innerText.trim();
+                navigator.clipboard.writeText(text).then(() => {
+                    btn.textContent = "Copied";
+                    setTimeout(() => (btn.textContent = "Copy"), 1500);
+                }).catch(() => {});
+            });
+            wrap.appendChild(btn);
+        });
+
+        // Point every download at the newest GitHub release, so the page stays right after
+        // each release. If GitHub can't be reached, the links above are used.
+        const ASSETS = {
+            "win-setup": /^UseAs_Setup_v.+\.exe$/i,
+            "win-portable": /_portable\.exe$/i,
+            "mac-arm": /_mac_arm64\.dmg$/i,
+            "mac-intel": /_mac_x86_64\.dmg$/i,
+            "linux-tar": /_linux_x86_64\.tar\.gz$/i,
+            "flatpak": /\.flatpak$/i
+        };
+        fetch("https://api.github.com/repos/manjeetdeswal/Use-As-Server/releases/latest")
+            .then(r => (r.ok ? r.json() : Promise.reject(r.status)))
+            .then(rel => {
+                const version = "v" + String(rel.tag_name || "").replace(/^v/i, "");
+                document.querySelectorAll("[data-version]").forEach(el => (el.textContent = version));
+                const found = {};
+                for (const [key, pattern] of Object.entries(ASSETS)) {
+                    found[key] = (rel.assets || []).find(a => pattern.test(a.name));
+                }
+                document.querySelectorAll("[data-asset]").forEach(link => {
+                    const asset = found[link.dataset.asset];
+                    if (asset) {
+                        link.href = asset.browser_download_url;
+                        link.title = asset.name;
+                        link.classList.remove("missing");
+                    } else {
+                        link.href = rel.html_url;          // not in this release: show all files
+                        link.title = "Not in this release yet: opens the release page";
+                        link.classList.add("missing");
+                    }
+                });
+                document.querySelectorAll("[data-file]").forEach(el => {
+                    const asset = found[el.dataset.file];
+                    if (asset) el.textContent = asset.name;
+                });
+            })
+            .catch(() => {});
     </script>
 </body>
 </html>
