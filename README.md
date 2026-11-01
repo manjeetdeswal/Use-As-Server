@@ -2,15 +2,16 @@
 
 # Use As Server 🖥️📱
 
-**Turn your Android device into a suite of powerful PC peripherals.** Control your computer, stream video, extend your display, and use your phone as a microphone, all with low latency over WiFi or USB.
+**Turn your Android device into a suite of powerful PC peripherals.** Control your computer, stream video, extend your display, and use your phone as a microphone, webcam or speaker, all with low latency over Wi-Fi or USB.
 
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-green.svg)]()
-[![Python](https://img.shields.io/badge/python-3.10%2B-yellow.svg)](https://www.python.org/)
+[![Python](https://img.shields.io/badge/python-3.10--3.12-yellow.svg)](https://www.python.org/)
+[![Release](https://img.shields.io/github/v/release/manjeetdeswal/Use-As-Server)](https://github.com/manjeetdeswal/Use-As-Server/releases/latest)
 
 [**🌐 Visit Official Website & Guide**](https://manjeetdeswal.github.io/Use-As-Server/)
 
-[**🌐 Download Android App**](https://play.google.com/store/apps/details?id=com.jeet_studio.use_as)
+[**📲 Download Android App**](https://play.google.com/store/apps/details?id=com.jeet_studio.use_as)
 <p align="center">
   <img src="https://github.com/manjeetdeswal/Use-As-Server/blob/main/ss/Screenshot%202026-01-07%20152541.png?raw=true" width="45%" alt="Home Screen" />
   <img src="https://github.com/manjeetdeswal/Use-As-Server/blob/main/ss/Screenshot%202026-01-07%20152549.png?raw=true" width="45%" alt="Smart Touchpad" />
@@ -32,133 +33,134 @@
 
 | Feature | Description |
 | :--- | :--- |
-| **🖱️ Smart Touchpad** | Smooth mouse control with acceleration (ballistics) and multi-monitor support. |
-| **⌨️ Full Keyboard** | 83-key layout with modifier support (Ctrl, Alt, Shift, Win/Cmd) and live text preview. |
-| **🎮 Virtual Gamepad** | Emulates an **Xbox 360 controller** (Win), **Virtual Input** (Linux), or maps to keyboard (macOS). |
-| **📹 Virtual Webcam** | Supports **Unity Capture** (Win), **v4l2loopback** (Linux), and **OBS Virtual Camera** (macOS). |
-| **🎤 Wireless Mic** | Routes phone audio to your PC microphone input with noise suppression. |
-| **🖥️ Second Display** | Extend your desktop workspace to your phone screen. |
-| **📂 File Transfer** | Drag & drop files PC-to-Phone, or send Phone-to-PC instantly. |
-| **⚡ Zero Latency** | Optimized for **USB Tethering** and **5GHz WiFi**. |
+| **🖱️ Smart Touchpad** | Smooth mouse control with acceleration, scrolling, three-finger gestures and multi-monitor support. |
+| **⌨️ Full Keyboard** | Full layout with modifier support (Ctrl, Alt, Shift, Win/Cmd), macros and live text preview. |
+| **🎮 Virtual Gamepad** | Emulates an **Xbox 360 controller** (Windows), a **uinput gamepad** (Linux), or maps to the keyboard (macOS). |
+| **📹 Virtual Webcam** | Uses **OBS Virtual Camera** or **Unity Capture** (Windows), **v4l2loopback** (Linux) and **OBS Virtual Camera** (macOS). |
+| **🎤 Wireless Mic** | Your phone's microphone becomes a microphone on the PC. |
+| **🔊 PC Speaker** | Hear your PC's sound on the phone, with title, artist and cover of what's playing. |
+| **🖥️ Second Display** | Extend your desktop to the phone. On Windows the phone becomes a real extra monitor. H.264 streaming for smooth 1080p60. |
+| **📂 Files & Clipboard** | Send files both ways, browse and download the PC's files, and sync the clipboard (text and images) with history. |
+| **🧰 PC Tools** | Shut down, restart, sleep or hibernate on a timer, per-app volume, screen brightness, open apps and switch windows, live PC stats. |
+| **🎛️ Custom Buttons** | Stream-Deck-style buttons for shortcuts, apps, websites, folders and commands, with ready-made presets. |
+| **🎞️ Presenter** | Next/previous slide, volume-key control, laser pointer and talk timer. |
+| **🔔 Notifications & Calls** | See the phone's notifications and calls on the PC, and answer or decline them there. |
+| **🔗 Easy Pairing** | Finds your PC automatically, or scan a QR code. Optional password. |
+| **⚡ Low Latency** | Optimised for **5 GHz Wi-Fi** and **USB tethering**. |
+
+> Some PC tools (per-app volume, the virtual monitor) are Windows only for now.
+> The Android app can also control an **Android TV** (remote, keyboard, gamepad, screen and files) without this server.
 
 ---
 
 ## 📥 Installation
 
-You can install the server using the compiled installers below or run it from the Python source.
+Download the server for your system from the [**Releases Page**](https://github.com/manjeetdeswal/Use-As-Server/releases/latest), or run it from the Python source.
 
-### 🪟 Option A: Windows Installer
+| System | File |
+| :--- | :--- |
+| 🪟 Windows | `UseAs_Setup_v2.1.exe` (installer) or `UseAsServer_v2.1_portable.exe` |
+| 🐧 Linux (x86-64) | `UseAsServer_v2.1_linux_x86_64.tar.gz` |
+| 🍎 macOS, Apple silicon (M1 and newer) | `UseAsServer_v2.1_mac_arm64.dmg` |
+| 🍎 macOS, Intel | `UseAsServer_v2.1_mac_x86_64.dmg` |
 
-1.  Download the latest **`UseAs_Setup.exe`** from the [**Releases Page**](https://github.com/manjeetdeswal/Use-As-Server/releases).
-2.  Run the installer to set up the server application.
-3.  **Install Drivers:** (See box below).
-4.  Launch **Use As Server** from your desktop.
+### 🪟 Option A: Windows
+
+1.  Download and run **`UseAs_Setup_v2.1.exe`**.
+2.  The installer sets up the **gamepad driver (ViGEmBus)**, the **virtual monitor driver** (optional, ticked by default) and the **Windows Firewall rules**.
+3.  Launch **Use As Server** from the Start menu or desktop.
 
 > [!IMPORTANT]
-> **Windows Drivers Required**
-> To unlock all features, download these drivers manually:
-> * 🎮 **Gamepad:** [Download ViGEmBus](https://github.com/nefarius/ViGEmBus/releases/latest)
+> **Extra drivers (only for these features)**
 > * 🎤 **Microphone:** [Download VB-CABLE](https://vb-audio.com/Cable/)
-> * 📸 **Webcam:** [Download Unity Capture](https://github.com/schellingb/UnityCapture)
-> * 🖥️ **Display:** [Download usbmmidd_v2](https://www.datronicsoft.com/download/usbmmidd_v2.zip)
+> * 📸 **Webcam:** [Download OBS Studio](https://obsproject.com/) (or [Unity Capture](https://github.com/schellingb/UnityCapture))
+>
+> The server's **Setup** tab shows what's missing and has buttons to fix it.
+
+The portable `.exe` runs without installing, but then the drivers and firewall rules aren't set up for you.
 
 ---
 
-### 🐧 Option B: Linux Installation (Debian/Ubuntu)
+### 🐧 Option B: Linux
 
-1.  Download the latest **`.deb`** package from the [**Releases Page**](https://github.com/manjeetdeswal/Use-As-Server/releases).
-2.  **Remove the old version** (If upgrading, to prevent conflicts):
+1.  Download **`UseAsServer_v2.1_linux_x86_64.tar.gz`** and unpack it:
     ```bash
-    sudo apt remove use-as-server
+    tar -xzf UseAsServer_v2.1_linux_x86_64.tar.gz
+    chmod +x UseAsServer
     ```
-3.  **Install the new package** (and override directory warnings if they occur):
+2.  Install the tools it uses (Debian/Ubuntu shown; use `dnf` on Fedora):
     ```bash
-    sudo apt update
-    sudo dpkg -i --force-overwrite ./use-as-server_1.5_all.deb
-    sudo apt --fix-broken install
+    sudo apt install xdotool pulseaudio-utils playerctl xclip wmctrl
     ```
-    *(This automatically installs Python, FFmpeg, and required tools. Restart is required for everything to work).*
+3.  Run it: `./UseAsServer`
 
 4.  **Linux Setup & Configuration:**
 
-    | Feature | Linux Setup Command |
+    | Feature | Linux Setup |
     | :--- | :--- |
-    | **📸 Camera** | `sudo modprobe v4l2loopback exclusive_caps=1 card_label="UseAs Cam"` |
-    | **🎤 Mic/Audio** | Install **PulseAudio Control** to route audio:<br>`sudo apt install pavucontrol`<br>Open `pavucontrol` to select "UseAs_Mic" as your input source. |
-    | **🎮 Gamepad** | Handled automatically via `uinput`. If issues arise: `sudo chmod 666 /dev/uinput` |
+    | **📸 Camera** | `sudo apt install v4l2loopback-dkms` then<br>`sudo modprobe v4l2loopback devices=1 video_nr=10 exclusive_caps=1 card_label="UseAs Cam"` |
+    | **🎤 Mic** | In your app (or `pavucontrol`), pick **"Monitor of UseAs_Virtual_Microphone"** as the microphone. |
+    | **🎮 Gamepad** | Uses `uinput`. If it doesn't work: `sudo chmod 666 /dev/uinput` |
+    | **📋 Clipboard images** | Needs `xclip` (X11) or `wl-clipboard` (Wayland). |
+    | **🔥 Firewall** | If you use one, allow TCP 8080, UDP 8081 and TCP 8082. |
 
 ---
 
-### 🎩 Option C: Linux Installation (Fedora/RHEL/CentOS)
+### 🍎 Option C: macOS
 
-1.  Download the latest converted **`.rpm`** package.
-2.  **Remove the old version** (Crucial to avoid case-sensitivity or old file conflicts):
-    ```bash
-    sudo dnf remove Use-As-Server
-    ```
-3.  **Install the new package and override directory warnings** (converted packages often trigger `/usr` filesystem conflicts):
-    ```bash
-    sudo rpm -ivh --replacefiles use-as-server-1.5-2.noarch.rpm
-    ```
-    > **Note:** If RPM continues to block the installation due to system directory metadata conflicts, use the force flag:
-    > `sudo rpm -ivh --force use-as-server-1.5-2.noarch.rpm`
-    >
-    > **Note:Convert deb to rpm:`-
-
-    > `sudo alien -r -c your_package.deb`
-
-*(Follow the same Linux Setup & Configuration steps listed in Option B for Camera, Mic, and Gamepad functionality).*
-
-### 🍎 Option D: macOS Installation
-
-1.  Download the latest **`UseAs_Server_macOS.zip`** from the [**Releases Page**](https://github.com/manjeetdeswal/Use-As-Server/releases).
-2.  Extract the ZIP and drag the **`UseAs Server.app`** into your **Applications** folder.
-3.  Launch **Use As Server** from Launchpad or Finder.
+1.  Download the **`.dmg`** for your Mac (Apple silicon or Intel) and drag **`Use As Server.app`** into **Applications**.
+2.  The app isn't signed yet, so the first time: **right-click the app › Open › Open**.
 
 > [!IMPORTANT]
 > **macOS Permissions & Drivers Required**
 > Apple enforces strict security constraints. Please complete these steps for full functionality:
-> * 🛡️ **Permissions:** You MUST grant the app **Accessibility** (for mouse/keyboard) and **Screen Recording** (for display sharing) in `System Settings > Privacy & Security`.
-> * 🖥️ **Display Extension:** [Download BetterDisplay](https://github.com/waydabber/BetterDisplay). Create a virtual dummy display to extend your workspace to your phone instead of just mirroring it.
-> * 🎤 **Microphone:** [Download BlackHole 2ch](https://existential.audio/blackhole/). Go to Mac Sound Settings and set your Input to BlackHole.
-> * > * 🎤 **Speaker:** [Download BlackHole 2ch](https://existential.audio/blackhole/). Go to Mac Sound Settings and set your Output to BlackHole.
-> * 📸 **Webcam:** [Download OBS Studio](https://obsproject.com/). Open OBS and click "Start Virtual Camera" to install the required system extension.
+> * 🛡️ **Permissions:** Allow the app under `System Settings › Privacy & Security`: **Accessibility** (mouse and keyboard) and **Screen Recording** (second screen).
+> * 🎤 **Microphone and 🔊 Speaker:** [Download BlackHole 2ch](https://existential.audio/blackhole/). For the phone mic, set your Mac's sound **Input** to BlackHole; to hear the Mac on the phone, set the sound **Output** to BlackHole.
+> * 📸 **Webcam:** [Download OBS Studio](https://obsproject.com/). Open OBS and click "Start Virtual Camera" once to install its system extension.
+> * 🖥️ **Display Extension:** [BetterDisplay](https://github.com/waydabber/BetterDisplay) can create a virtual display so the phone extends your desktop instead of mirroring it.
 
 ---
 
-### 🐍 Option E: Run from Source (Advanced)
-
-If you are a developer, you can run the raw Python script directly.
+### 🐍 Option D: Run from Source (Advanced)
 
 #### 1. Prerequisites
-* **Python 3.10** or newer installed.
+* **Python 3.10 to 3.12**.
 
 #### 2. Install Dependencies
 
 **Windows:**
 ```cmd
-pip install -r requirements.txt
-Linux:
+pip install -r requirements-windows.txt
+```
 
-Bash
-sudo apt install python3-tk python3-pip python3-venv v4l2loopback-dkms portaudio19-dev
-pip3 install -r requirements.txt --break-system-packages
-macOS:
+**Linux:**
+```bash
+sudo apt install python3-tk python3-pip python3-venv portaudio19-dev xdotool pulseaudio-utils playerctl xclip wmctrl
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements-linux.txt
+```
 
-Bash
-pip3 install setuptools protobuf==3.20.3
-pip3 install -r requirements_mac.txt
-3. Run Server
-Windows:
+**macOS:**
+```bash
+brew install python@3.11 python-tk@3.11 portaudio
+python3.11 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements-mac.txt
+```
 
-Bash
-python UseAsServerWin.py
+#### 3. Run Server
 
-Linux:
-Bash
-python UseAsServerLinux.py
+The same command works on every system:
 
-macOS:
+```bash
+python UseAsServer.py
+```
 
-Bash
-python3 UseAsServerMac.py
+#### 4. Build it yourself
+
+```bash
+pyinstaller --noconfirm UseAsServer.spec
+```
+
+Build on the system you want the app for. Pushing a `v*` tag builds all of them on GitHub Actions and attaches them to a release. See [README_PLATFORMS.md](README_PLATFORMS.md) for details.
