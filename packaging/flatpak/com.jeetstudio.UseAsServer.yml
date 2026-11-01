@@ -1,6 +1,10 @@
 # Flatpak for Use As Server. Built by .github/workflows/build.yml, which first puts the
 # PyInstaller Linux build (UseAsServer) and a 256 px icon (icon-256.png) next to this file.
 #
+# xdotool, xclip, wmctrl, playerctl and pactl are built into the Flatpak (build-tools.sh), so
+# users don't need to install them. Power, lock, sign-out and "open app" commands run on the
+# computer itself (host-command.sh).
+#
 # Build it yourself on Linux (after `pyinstaller UseAsServer.spec`):
 #   cp dist/UseAsServer packaging/flatpak/
 #   python3 -c "from PIL import Image; Image.open('icon.png').convert('RGBA').resize((256,256)).save('packaging/flatpak/icon-256.png')"
@@ -15,24 +19,91 @@ command: UseAsServer
 finish-args:
   - --share=network          # the phone connects over Wi-Fi / USB
   - --share=ipc
-  - --socket=x11             # window, screen capture, mouse and keyboard (pyautogui)
-  - --socket=pulseaudio      # PC sound to the phone, phone mic to the PC
+  - --socket=x11             # window, screen capture, mouse and keyboard
+  - --socket=pulseaudio      # PC sound to the phone, phone mic to the PC (pactl too)
   - --device=all             # /dev/uinput (gamepad) and /dev/video* (virtual webcam)
   - --filesystem=home        # file browser, received files, settings in ~/.config/useas_server
+  - --filesystem=host-os:ro  # the computer's app list (/run/host/usr/share/applications)
+  - --filesystem=/var/lib/flatpak:ro   # …and its installed Flatpak apps
   - --talk-name=org.freedesktop.Notifications
   - --talk-name=org.kde.StatusNotifierWatcher   # tray icon
-  # The app runs xdotool, pactl, playerctl, xclip, xrandr… Those live on the computer, not in
-  # the sandbox, so the wrappers in /app/bin run them there (flatpak-spawn --host). This gives
-  # the app full access to the computer, like the normal build has; fine for a .flatpak you
-  # hand out yourself, but Flathub would not accept it.
+  - --talk-name=org.mpris.MediaPlayer2.*        # playerctl: song info and media keys
+  # Shut down, sleep, lock, sign out and opening apps must happen on the computer, not in the
+  # sandbox (flatpak-spawn --host). Fine for a .flatpak you hand out; Flathub wouldn't allow it.
   - --talk-name=org.freedesktop.Flatpak
 
 modules:
+  - name: tools
+    buildsystem: simple
+    build-commands:
+      - PREFIX=/app/tools sh build-tools.sh
+    cleanup:
+      - /tools/include
+      - /tools/lib/pkgconfig
+      - /tools/share/pkgconfig
+      - /tools/share/aclocal
+      - /tools/share/man
+      - /tools/share/doc
+      - /tools/share/util-macros
+      - '*.la'
+      - '*.a'
+    sources:
+      - type: file
+        path: build-tools.sh
+      # X libraries, built only if the runtime lacks them
+      - type: git
+        url: https://github.com/freedesktop-unofficial-mirror/xorg__util__macros.git
+        commit: 9a54b858601bd305de2737b06e609084a2a114c2
+        dest: macros
+      - type: git
+        url: https://github.com/freedesktop-unofficial-mirror/xorg__lib__libXtst.git
+        commit: 48d2656fa1dd98e9d88b31211fa4f09f813e7b30
+        dest: xtst
+      - type: git
+        url: https://github.com/freedesktop-unofficial-mirror/xorg__lib__libXinerama.git
+        commit: edd95182b26eb5d576d4878c559e0f17dddaa909
+        dest: xinerama
+      - type: git
+        url: https://github.com/freedesktop-unofficial-mirror/xorg__lib__libXt.git
+        commit: 0c2c7562426aec7bdf9b54a7d6993153e0bce489
+        dest: xt
+      - type: git
+        url: https://github.com/freedesktop-unofficial-mirror/xorg__lib__libXmu.git
+        commit: 4459e6940fe3fdf26a8d5d4c71989498bc400a62
+        dest: xmu
+      # the tools
+      - type: archive
+        url: https://github.com/jordansissel/xdotool/releases/download/v3.20211022.1/xdotool-3.20211022.1.tar.gz
+        sha256: 96f0facfde6d78eacad35b91b0f46fecd0b35e474c03e00e30da3fdd345f9ada
+        dest: xdotool
+      - type: git
+        url: https://github.com/astrand/xclip.git
+        tag: '0.13'
+        commit: 9aa7090c3b8b437c6489edca32ae43d82e0c1281
+        dest: xclip
+      - type: git
+        url: https://github.com/dancor/wmctrl.git
+        commit: 0181e8e4a7ed98255f6ef930875e56560f19aa95
+        dest: wmctrl
+      - type: git
+        url: https://github.com/altdesktop/playerctl.git
+        tag: v2.4.1
+        commit: e5304e9dc9a0c0c32b3689c3f141cf266d27f59c
+        dest: playerctl
+      - type: git
+        url: https://github.com/pulseaudio/pulseaudio.git
+        tag: v17.0
+        commit: 1f020889c9aa44ea0f63d7222e8c2b62c3f45f68
+        dest: pulseaudio
+
   - name: use-as-server
     buildsystem: simple
     build-commands:
       - install -Dm755 UseAsServer /app/bin/UseAsServer
-      - for tool in xdotool pactl playerctl xclip wl-copy wmctrl xrandr nautilus; do
+      # every command the app runs goes through host-command.sh, which picks the bundled copy,
+      # the runtime's copy or the computer's (in that order)
+      - for tool in xdotool xclip wmctrl playerctl pactl xrandr xset systemctl loginctl shutdown
+          gtk-launch nvidia-smi xdg-screensaver gnome-screensaver-command; do
           install -Dm755 host-command.sh "/app/bin/$tool"; done
       - install -Dm644 com.jeetstudio.UseAsServer.desktop /app/share/applications/com.jeetstudio.UseAsServer.desktop
       - install -Dm644 icon-256.png /app/share/icons/hicolor/256x256/apps/com.jeetstudio.UseAsServer.png

@@ -36,8 +36,23 @@ def _send_args(args):
     return files
 
 
+def _restore_library_path():
+    """The Linux build (PyInstaller) points LD_LIBRARY_PATH at its own bundled libraries.
+    Programs it starts (xdotool, pactl, playerctl, the browser…) inherit that and can pick up
+    the wrong library versions, so give them the computer's original setting back. This
+    process is unaffected: the loader read LD_LIBRARY_PATH when it started."""
+    if not getattr(sys, "frozen", False) or sys.platform != "linux":
+        return
+    orig = os.environ.pop("LD_LIBRARY_PATH_ORIG", None)
+    if orig is not None:
+        os.environ["LD_LIBRARY_PATH"] = orig
+    else:
+        os.environ.pop("LD_LIBRARY_PATH", None)
+
+
 def main():
     multiprocessing.freeze_support()
+    _restore_library_path()
     args = sys.argv[1:]
     elevated = "--elevated" in args
     send_files = _send_args(args)

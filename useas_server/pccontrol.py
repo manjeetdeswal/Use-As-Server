@@ -776,6 +776,9 @@ def _launchers_linux():
     items = []
     dirs = [Path("/usr/share/applications"), Path("/var/lib/flatpak/exports/share/applications"),
             Path.home() / ".local/share/applications"]
+    if os.environ.get("FLATPAK_ID"):
+        # Inside the Flatpak, /usr is the sandbox's; the computer's apps are under /run/host
+        dirs[0] = Path("/run/host/usr/share/applications")
     for d in dirs:
         if not d.exists():
             continue
@@ -817,7 +820,10 @@ def launch(item_id):
         elif MAC:
             subprocess.Popen(["open", item_id])
         else:
-            if _which("gio"):
+            if os.environ.get("FLATPAK_ID"):
+                # gtk-launch runs on the computer (see packaging/flatpak/host-command.sh)
+                subprocess.Popen(["gtk-launch", Path(item_id).stem])
+            elif _which("gio"):
                 subprocess.Popen(["gio", "launch", item_id])
             else:
                 subprocess.Popen(["gtk-launch", Path(item_id).stem])
