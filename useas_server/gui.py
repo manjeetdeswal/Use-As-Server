@@ -31,6 +31,31 @@ except Exception:
     DND_FILES = None
     _DnDRoot = None
 
+# Window class name, so Linux docks match the window to its menu entry (StartupWMClass in
+# packaging/linux/use-as-server.desktop and packaging/flatpak/…desktop).
+WINDOW_CLASS = "UseAsServer"
+
+
+def _use_our_icon_on_dialogs():
+    """On Windows, CustomTkinter gives every CTkToplevel (Settings, QR…) its own blue logo
+    unless iconbitmap() is called first. Give them ours."""
+    original = ctk.CTkToplevel.__init__
+
+    def init(self, *args, **kwargs):
+        original(self, *args, **kwargs)
+        ico = resource_path("icon.ico")
+        if os.path.exists(ico):
+            try:
+                self.iconbitmap(ico)
+            except Exception:
+                pass
+
+    ctk.CTkToplevel.__init__ = init
+
+
+if os.name == "nt":
+    _use_our_icon_on_dialogs()
+
 
 class QrPairDialog(ctk.CTkToplevel):
     """Shows the pairing QR code. Scanning it in the Use As app (or with the phone's
@@ -348,11 +373,11 @@ class ServerGUI:
         self.root = None
         if _DnDRoot is not None:
             try:
-                self.root = _DnDRoot()
+                self.root = _DnDRoot(className=WINDOW_CLASS)
             except Exception as e:   # tkdnd library missing for this Tcl/Tk
                 print(f"Drag-and-drop unavailable: {e}")
         if self.root is None:
-            self.root = ctk.CTk()
+            self.root = ctk.CTk(className=WINDOW_CLASS)
         self.root.title(f"Use As Server  ·  v{APP_VERSION}  ·  {self.platform.display_name}")
         self.root.geometry("980x700")
         self.root.minsize(860, 620)
@@ -370,16 +395,18 @@ class ServerGUI:
                 if os.path.exists(icon_path):
                     self.root.iconbitmap(icon_path)
             else:
-                png = resource_path("icon.png")
-                if os.path.exists(png):
-                    # icon.png is 2048x2048. Handed to Tk as is, Linux sends it to the X server
-                    # as one ~32 MB request (X allows ~16 MB) and the app dies with
-                    # "X Error ... BadLength". Small sizes are all a window icon needs.
+                # Small ready-made sizes (packaging/icons/make_icons.py). Never the 2048 px
+                # icon.png: Linux sends a window icon to the X server in one request, and
+                # one that big (~32 MB, X allows ~16 MB) kills the app with "X Error ... BadLength".
+                sizes = [resource_path(f"icons/window-{n}.png") for n in (128, 64, 32)]
+                if all(os.path.exists(p) for p in sizes):
+                    self._icon_imgs = [tk.PhotoImage(file=p) for p in sizes]
+                else:
                     from PIL import ImageTk
-                    src = Image.open(png).convert("RGBA")
+                    src = Image.open(resource_path("icon.png")).convert("RGBA")
                     self._icon_imgs = [ImageTk.PhotoImage(src.resize((n, n), Image.LANCZOS))
                                        for n in (128, 64, 32)]
-                    self.root.iconphoto(True, *self._icon_imgs)
+                self.root.iconphoto(True, *self._icon_imgs)
         except Exception:
             pass
  
@@ -524,8 +551,10 @@ class ServerGUI:
                 try:
                     image = Image.open(icon_path)
                     if self.platform.name != "windows":
-                        # Same 2048px icon: far too big for the Linux/macOS tray.
-                        image = image.convert("RGBA").resize((128, 128), Image.LANCZOS)
+                        # The 2048 px icon is far too big for the Linux/macOS tray.
+                        small = resource_path("icons/window-128.png")
+                        image = (Image.open(small) if os.path.exists(small) else
+                                 image.convert("RGBA").resize((128, 128), Image.LANCZOS))
                     break
                 except Exception:
                     pass

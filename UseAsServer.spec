@@ -18,6 +18,9 @@ datas = [('icon.png', '.'),
          ('selfie_segmenter.tflite', '.')]
 if os.path.exists('icon.ico'):
     datas.append(('icon.ico', '.'))
+# Small window/tray icons for Linux and macOS (made by packaging/icons/make_icons.py)
+for n in (128, 64, 32):
+    datas.append((f'packaging/icons/window-{n}.png', 'icons'))
 binaries = []
 # The app lives in the useas_server package; the OS backend is picked at runtime.
 hiddenimports = ['useas_server.platforms.windows' if WINDOWS else
@@ -89,13 +92,13 @@ if MAC:
         target_arch=None,          # builds for the Mac type it runs on (Apple silicon or Intel)
         codesign_identity=None,
         entitlements_file=None,
-        icon='icon.png',           # PyInstaller converts it to .icns (needs Pillow)
+        icon='packaging/icons/icon-mac.png',   # macOS shape; converted to .icns (needs Pillow)
     )
     coll = COLLECT(exe, a.binaries, a.datas, strip=False, upx=False, name='UseAsServer')
     app = BUNDLE(
         coll,
         name='Use As Server.app',
-        icon='icon.png',
+        icon='packaging/icons/icon-mac.png',
         bundle_identifier='com.jeetstudio.useasserver',
         info_plist={
             'CFBundleShortVersionString': os.environ.get('VERSION', '2.0'),   # set by the workflow

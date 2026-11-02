@@ -1,6 +1,6 @@
 # .deb (Ubuntu, Mint, Debian) and .rpm (Fedora) packages of the PyInstaller Linux build.
 # Built by .github/workflows/build.yml with nfpm (https://nfpm.goreleaser.com), run from the
-# repository root after PyInstaller and after making packaging/linux/icon-256.png:
+# repository root after PyInstaller:
 #   VERSION=2.1.1 nfpm pkg --packager deb --config packaging/linux/nfpm.yaml --target upload/
 #
 # The package name matches the old 1.5 packages, so installing this upgrades them
@@ -32,8 +32,22 @@ contents:
     type: symlink
   - src: ./packaging/linux/use-as-server.desktop
     dst: /usr/share/applications/use-as-server.desktop
-  - src: ./packaging/linux/icon-256.png
+  - src: ./packaging/icons/hicolor/16x16/use-as-server.png
+    dst: /usr/share/icons/hicolor/16x16/apps/use-as-server.png
+  - src: ./packaging/icons/hicolor/24x24/use-as-server.png
+    dst: /usr/share/icons/hicolor/24x24/apps/use-as-server.png
+  - src: ./packaging/icons/hicolor/32x32/use-as-server.png
+    dst: /usr/share/icons/hicolor/32x32/apps/use-as-server.png
+  - src: ./packaging/icons/hicolor/48x48/use-as-server.png
+    dst: /usr/share/icons/hicolor/48x48/apps/use-as-server.png
+  - src: ./packaging/icons/hicolor/64x64/use-as-server.png
+    dst: /usr/share/icons/hicolor/64x64/apps/use-as-server.png
+  - src: ./packaging/icons/hicolor/128x128/use-as-server.png
+    dst: /usr/share/icons/hicolor/128x128/apps/use-as-server.png
+  - src: ./packaging/icons/hicolor/256x256/use-as-server.png
     dst: /usr/share/icons/hicolor/256x256/apps/use-as-server.png
+  - src: ./packaging/icons/hicolor/512x512/use-as-server.png
+    dst: /usr/share/icons/hicolor/512x512/apps/use-as-server.png
 
 scripts:
   postinstall: ./packaging/linux/postinstall.sh

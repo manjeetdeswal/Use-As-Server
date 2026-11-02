@@ -7,3 +7,4 @@ Icon=use-as-server
 Terminal=false
 Categories=Utility;Network;
 Keywords=phone;remote;webcam;gamepad;second screen;
+StartupWMClass=UseAsServer

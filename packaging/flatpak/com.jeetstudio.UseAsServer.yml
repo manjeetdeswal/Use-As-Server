@@ -1,5 +1,5 @@
 # Flatpak for Use As Server. Built by .github/workflows/build.yml, which first puts the
-# PyInstaller Linux build (UseAsServer) and a 256 px icon (icon-256.png) next to this file.
+# PyInstaller Linux build (UseAsServer) next to this file. Icons: packaging/icons.
 #
 # xdotool, xclip, wmctrl, playerctl and pactl are built into the Flatpak (build-tools.sh), so
 # users don't need to install them. Power, lock, sign-out and "open app" commands run on the
@@ -7,7 +7,6 @@
 #
 # Build it yourself on Linux (after `pyinstaller UseAsServer.spec`):
 #   cp dist/UseAsServer packaging/flatpak/
-#   python3 -c "from PIL import Image; Image.open('icon.png').convert('RGBA').resize((256,256)).save('packaging/flatpak/icon-256.png')"
 #   flatpak-builder --user --install-deps-from=flathub --force-clean --install flatpak-build packaging/flatpak/com.jeetstudio.UseAsServer.yml
 #   flatpak run com.jeetstudio.UseAsServer
 app-id: com.jeetstudio.UseAsServer
@@ -106,12 +105,14 @@ modules:
           gtk-launch nvidia-smi xdg-screensaver gnome-screensaver-command; do
           install -Dm755 host-command.sh "/app/bin/$tool"; done
       - install -Dm644 com.jeetstudio.UseAsServer.desktop /app/share/applications/com.jeetstudio.UseAsServer.desktop
-      - install -Dm644 icon-256.png /app/share/icons/hicolor/256x256/apps/com.jeetstudio.UseAsServer.png
+      - for d in icons/hicolor/*; do install -Dm644 "$d/use-as-server.png"
+          "/app/share/icons/hicolor/$(basename "$d")/apps/com.jeetstudio.UseAsServer.png"; done
     sources:
       - type: file
         path: UseAsServer
-      - type: file
-        path: icon-256.png
+      - type: dir
+        path: ../icons
+        dest: icons
       - type: file
         path: host-command.sh
       - type: file
