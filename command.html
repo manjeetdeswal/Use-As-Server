@@ -1,0 +1,460 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Use As - Release Commands</title>
+    <link rel="icon" type="image/png" sizes="32x32" href="packaging/icons/hicolor/32x32/use-as-server.png">
+    <link rel="icon" type="image/png" sizes="64x64" href="packaging/icons/hicolor/64x64/use-as-server.png">
+    <link rel="apple-touch-icon" href="packaging/icons/hicolor/256x256/use-as-server.png">
+    <meta name="description" content="Git and release commands for updating and publishing Use As Server.">
+    <style>
+        :root {
+            --primary: #00E676;
+            --bg: #121212;
+            --surface: #1E1E1E;
+            --border: #333;
+            --text: #FFFFFF;
+            --text-secondary: #B0BEC5;
+            --accent: #2979FF;
+            --warning: #FFAB00;
+            --red: #FF5252;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        html { scroll-behavior: smooth; }
+
+        body {
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            line-height: 1.6;
+        }
+
+        a { color: var(--accent); }
+
+        code {
+            font-family: 'Consolas', 'Courier New', monospace;
+            background: rgba(255, 255, 255, 0.08);
+            padding: 1px 6px;
+            border-radius: 4px;
+            font-size: 0.88em;
+            overflow-wrap: anywhere;
+        }
+
+        header {
+            text-align: center;
+            padding: 60px 16px 40px;
+            background: radial-gradient(circle at top, #1e2824 0%, var(--bg) 70%);
+        }
+
+        h1 { font-size: clamp(2rem, 6vw, 3rem); letter-spacing: -1px; line-height: 1.15; margin-bottom: 12px; }
+        .subtitle { color: var(--text-secondary); max-width: 680px; margin: 0 auto 24px; font-size: 1.1rem; }
+        .back { color: var(--text-secondary); font-size: 0.9rem; text-decoration: none; }
+        .back:hover { color: var(--text); }
+
+        nav.toc {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 8px;
+            margin-top: 24px;
+        }
+
+        nav.toc a {
+            color: var(--text-secondary);
+            text-decoration: none;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            padding: 6px 14px;
+            border-radius: 20px;
+            font-size: 0.9rem;
+        }
+
+        nav.toc a:hover { color: var(--text); border-color: var(--primary); }
+
+        .container { max-width: 900px; margin: 0 auto; padding: 30px 16px 60px; }
+
+        section { margin-bottom: 64px; scroll-margin-top: 20px; }
+
+        h2 {
+            font-size: 1.8rem;
+            margin-bottom: 18px;
+            border-left: 5px solid var(--primary);
+            padding-left: 18px;
+            line-height: 1.25;
+        }
+
+        h3 { color: var(--primary); margin: 28px 0 10px; font-size: 1.15rem; }
+        p { margin-bottom: 12px; }
+        .muted { color: var(--text-secondary); }
+
+        .note {
+            font-size: 0.92rem;
+            color: var(--text-secondary);
+            background: rgba(255, 255, 255, 0.05);
+            padding: 14px 16px;
+            border-radius: 8px;
+            margin: 14px 0;
+        }
+
+        .note.warning {
+            background: rgba(255, 171, 0, 0.1);
+            border: 1px solid rgba(255, 171, 0, 0.3);
+            color: var(--warning);
+        }
+
+        /* numbered steps */
+        ol.steps { list-style: none; counter-reset: step; }
+        ol.steps > li { counter-increment: step; position: relative; padding-left: 44px; margin-bottom: 18px; }
+        ol.steps > li::before {
+            content: counter(step);
+            position: absolute;
+            left: 0;
+            top: 0;
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            background: var(--accent);
+            color: #fff;
+            font-weight: bold;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        /* terminals */
+        .terminal-wrap { position: relative; }
+
+        .terminal {
+            background: #000;
+            color: #00ff00;
+            font-family: 'Consolas', 'Courier New', monospace;
+            padding: 14px 70px 14px 15px;
+            border-radius: 6px;
+            margin: 10px 0;
+            white-space: pre-wrap;
+            overflow-wrap: anywhere;
+            font-size: 0.9rem;
+            border-left: 3px solid #555;
+        }
+
+        .copy-btn {
+            position: absolute;
+            top: 8px;
+            right: 8px;
+            background: #2a2a2a;
+            color: var(--text-secondary);
+            border: 1px solid #444;
+            border-radius: 6px;
+            padding: 3px 10px;
+            font-size: 0.8rem;
+            cursor: pointer;
+            font-family: inherit;
+        }
+
+        .copy-btn:hover { color: #fff; border-color: #888; }
+
+        /* tables */
+        .table-wrap { overflow-x: auto; margin: 12px 0 16px; }
+
+        table { width: 100%; border-collapse: collapse; font-size: 0.93rem; }
+
+        th, td {
+            text-align: left;
+            padding: 10px 12px;
+            border-bottom: 1px solid var(--border);
+            vertical-align: top;
+        }
+
+        th { color: var(--text-secondary); font-weight: 600; background: rgba(255, 255, 255, 0.03); }
+
+        /* checklist */
+        ul.checklist { list-style: none; }
+
+        ul.checklist li {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            margin-bottom: 8px;
+        }
+
+        ul.checklist label { display: flex; gap: 12px; align-items: flex-start; padding: 12px 14px; cursor: pointer; }
+        ul.checklist input { margin-top: 5px; width: 18px; height: 18px; accent-color: var(--primary); flex-shrink: 0; }
+        ul.checklist input:checked + span { color: var(--text-secondary); text-decoration: line-through; }
+
+        .btn-reset {
+            background: var(--surface);
+            color: var(--text-secondary);
+            border: 1px solid var(--border);
+            border-radius: 20px;
+            padding: 6px 16px;
+            cursor: pointer;
+            font-family: inherit;
+            font-size: 0.9rem;
+            margin-top: 6px;
+        }
+
+        .btn-reset:hover { color: var(--text); border-color: var(--text); }
+
+        footer {
+            text-align: center;
+            padding: 30px 16px;
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+            border-top: 1px solid #222;
+        }
+
+        footer a { color: var(--text-secondary); }
+
+        @media (max-width: 600px) {
+            /* tables become one card per row on phones */
+            .stack table, .stack tbody, .stack tr, .stack td { display: block; width: 100%; }
+            .stack thead { display: none; }
+            .stack tr { border-bottom: 1px solid var(--border); padding: 8px 0; }
+            .stack td { border: none; padding: 3px 0; }
+            .stack td::before { content: attr(data-label); display: block; color: var(--text-secondary); font-size: 0.8rem; }
+            h2 { font-size: 1.5rem; padding-left: 14px; }
+            ol.steps > li { padding-left: 40px; }
+        }
+    </style>
+</head>
+<body>
+
+    <header>
+        <a class="back" href="index.html">← Use As website</a>
+        <h1 style="margin-top: 14px;">Release Commands</h1>
+        <p class="subtitle">Every update goes the same way: change the code, commit, push, then push a version tag. GitHub Actions builds Windows, macOS and Linux and publishes the release.</p>
+        <p class="muted" style="font-size: 0.9rem;">Run all commands in <code>C:\Users\Manjeet\Use-As-Server</code> (Command Prompt, PowerShell or Git Bash).</p>
+        <nav class="toc">
+            <a href="#everyday">Everyday loop</a>
+            <a href="#release">New version</a>
+            <a href="#test">Test build</a>
+            <a href="#problems">Problems</a>
+            <a href="#website">Website &amp; icons</a>
+            <a href="#checklist">Checklist</a>
+        </nav>
+    </header>
+
+    <div class="container">
+
+        <!-- ================= EVERYDAY ================= -->
+        <section id="everyday">
+            <h2>The everyday loop</h2>
+            <p>Use this after every change, whether or not you release. Always pull before you push, because edits made on the GitHub website make a plain push fail.</p>
+
+            <ol class="steps">
+                <li>
+                    <p>See what changed:</p>
+                    <div class="terminal-wrap"><div class="terminal">git status
+git diff</div></div>
+                </li>
+                <li>
+                    <p>Stage the files you changed. Name them, or use a folder; avoid <code>git add -A</code> unless <code>.venv/</code> is in <code>.gitignore</code>:</p>
+                    <div class="terminal-wrap"><div class="terminal">git add useas_server index.html packaging</div></div>
+                </li>
+                <li>
+                    <p>Commit with a short message that says what the change does:</p>
+                    <div class="terminal-wrap"><div class="terminal">git commit -m "Add per-app volume on Linux"</div></div>
+                </li>
+                <li>
+                    <p>Get GitHub's latest changes, then push yours:</p>
+                    <div class="terminal-wrap"><div class="terminal">git pull --rebase --autostash
+git push</div></div>
+                </li>
+                <li>
+                    <p>Check it arrived: <code>git log --oneline -5</code> should show your commit on top, next to <code>origin/main</code>.</p>
+                </li>
+            </ol>
+            <p class="note">The <code>LF will be replaced by CRLF</code> warnings are only about Windows line endings; ignore them.</p>
+        </section>
+
+        <!-- ================= RELEASE ================= -->
+        <section id="release">
+            <h2>Releasing a new version</h2>
+            <p>A release is one pushed tag. Push your commits first (the everyday loop), then tag the latest commit.</p>
+
+            <div class="table-wrap stack">
+                <table>
+                    <thead><tr><th>Change</th><th>Example</th><th>New version</th></tr></thead>
+                    <tbody>
+                        <tr><td data-label="Change">Bug fix only</td><td data-label="Example">Linux crash fix</td><td data-label="New version">2.1.1 → <strong>2.1.2</strong></td></tr>
+                        <tr><td data-label="Change">New feature</td><td data-label="Example">Per-app volume on Linux</td><td data-label="New version">2.1.1 → <strong>2.2</strong></td></tr>
+                        <tr><td data-label="Change">Big change, phone app must update too</td><td data-label="Example">New protocol</td><td data-label="New version">2.x → <strong>3.0</strong></td></tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <p>Tag and push it:</p>
+            <div class="terminal-wrap"><div class="terminal">git tag v2.2
+git push origin v2.2</div></div>
+
+            <p>The workflow writes the version into the app, the installer and the file names by itself; you don't edit <code>APP_VERSION</code> or <code>my.iss</code>. Watch it in GitHub › <strong>Actions</strong> (about 20–30 minutes). When every job is green, the release <strong>Use As Server 2.2</strong> is marked Latest with 8 files:</p>
+
+            <div class="table-wrap stack">
+                <table>
+                    <thead><tr><th>System</th><th>File</th></tr></thead>
+                    <tbody>
+                        <tr><td data-label="System">Windows</td><td data-label="File"><code>UseAs_Setup_v2.2.exe</code>, <code>UseAsServer_v2.2_portable.exe</code></td></tr>
+                        <tr><td data-label="System">macOS</td><td data-label="File"><code>UseAsServer_v2.2_mac_arm64.dmg</code>, <code>UseAsServer_v2.2_mac_x86_64.dmg</code></td></tr>
+                        <tr><td data-label="System">Linux</td><td data-label="File"><code>UseAsServer_v2.2_linux_amd64.deb</code>, <code>UseAsServer_v2.2_linux_x86_64.rpm</code>, <code>UseAsServer_v2.2_linux_x86_64.tar.gz</code>, <code>UseAsServer_v2.2_x86_64.flatpak</code></td></tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <p>The app's <strong>Check for Update</strong> and the website both read the Latest release, so users see it straight away. Add a few lines of release notes afterwards: open the release › pencil icon › write at the top › Update release.</p>
+            <p>See your tags with <code>git tag</code> (local) or <code>git ls-remote --tags origin</code> (GitHub).</p>
+        </section>
+
+        <!-- ================= TEST ================= -->
+        <section id="test">
+            <h2>Test builds without a release</h2>
+            <p>Try a change on real Windows, Mac or Linux builds before users get it: GitHub › <strong>Actions</strong> › <strong>Build Use As Server</strong> › <strong>Run workflow</strong>. Push your commits first; it builds what is on GitHub.</p>
+
+            <div class="table-wrap stack">
+                <table>
+                    <thead><tr><th>Option</th><th>What to pick</th></tr></thead>
+                    <tbody>
+                        <tr><td data-label="Option">version</td><td data-label="What to pick">e.g. <code>2.2</code> (empty = <code>APP_VERSION</code> in <code>useas_server/common.py</code>)</td></tr>
+                        <tr><td data-label="Option">platforms</td><td data-label="What to pick"><code>all</code>, or just <code>windows</code>, <code>linux</code> or <code>macos</code> to save time</td></tr>
+                        <tr><td data-label="Option">flatpak</td><td data-label="What to pick">on to also make the Flatpak (needs Linux)</td></tr>
+                        <tr><td data-label="Option">release</td><td data-label="What to pick"><strong>off</strong> for a test; on publishes release <code>v&lt;version&gt;</code></td></tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <p>When it finishes, download the files at the bottom of the run's page under <strong>Artifacts</strong>. Each one is a <code>.zip</code> with the file inside.</p>
+            <p class="note warning">The Linux build also opens the window on a virtual screen and installs the <code>.deb</code> on Ubuntu and the <code>.rpm</code> on Fedora. A red X there means the build would crash or not install, so don't release it.</p>
+        </section>
+
+        <!-- ================= PROBLEMS ================= -->
+        <section id="problems">
+            <h2>When something goes wrong</h2>
+            <p>Find the message you see, then run its fix.</p>
+
+            <div class="table-wrap stack">
+                <table>
+                    <thead><tr><th>You see</th><th>What it means</th><th>Fix</th></tr></thead>
+                    <tbody>
+                        <tr><td data-label="You see"><code>! [rejected] main -&gt; main (fetch first)</code></td><td data-label="What it means">GitHub has commits you don't have</td><td data-label="Fix"><code>git pull --rebase --autostash</code> then <code>git push</code></td></tr>
+                        <tr><td data-label="You see"><code>cannot pull with rebase: You have unstaged changes</code></td><td data-label="What it means">Uncommitted edits block the pull</td><td data-label="Fix"><code>git pull --rebase --autostash</code></td></tr>
+                        <tr><td data-label="You see"><code>CONFLICT (content): Merge conflict in &lt;file&gt;</code></td><td data-label="What it means">You and GitHub both changed that file</td><td data-label="Fix">See <a href="#conflict">Resolving a conflict</a></td></tr>
+                        <tr><td data-label="You see">A screen full of <code>#</code> lines and <code>~</code> (Vim)</td><td data-label="What it means">Git wants a commit message</td><td data-label="Fix">Press Esc, type <code>:wq</code>, press Enter</td></tr>
+                        <tr><td data-label="You see"><code>You are not currently on a branch</code></td><td data-label="What it means">A rebase is still in progress</td><td data-label="Fix">Finish it (<code>git rebase --continue</code>) or cancel it (<code>git rebase --abort</code>)</td></tr>
+                        <tr><td data-label="You see"><code>fatal: no rebase in progress</code></td><td data-label="What it means">There's nothing to continue</td><td data-label="Fix">Nothing to fix; run <code>git status</code></td></tr>
+                        <tr><td data-label="You see"><code>tag 'v2.2' already exists</code></td><td data-label="What it means">That version was tagged before</td><td data-label="Fix">Use a new number, or <a href="#move-tag">move the tag</a></td></tr>
+                        <tr><td data-label="You see">Red X in Actions</td><td data-label="What it means">A build or test failed; no release was made</td><td data-label="Fix">Open the red job, read the last lines, fix, push, <a href="#move-tag">move the tag</a></td></tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <h3 id="conflict">Resolving a conflict</h3>
+            <p>During <code>git pull --rebase</code>, <code>--theirs</code> means <strong>your</strong> commit and <code>--ours</code> means GitHub's version (it's reversed from what the words suggest).</p>
+            <div class="terminal-wrap"><div class="terminal">git checkout --theirs index.html
+git add index.html
+git rebase --continue
+git push</div></div>
+            <p>Use <code>--ours</code> instead to keep GitHub's version. Repeat for each file the message names. To back out completely: <code>git rebase --abort</code>.</p>
+
+            <h3 id="move-tag">Moving a tag after a failed build</h3>
+            <div class="terminal-wrap"><div class="terminal">git tag -f v2.2
+git push -f origin v2.2</div></div>
+            <p>This points the tag at your newest commit and starts the build again.</p>
+
+            <h3>Deleting a tag you didn't mean to push</h3>
+            <div class="terminal-wrap"><div class="terminal">git tag -d v2.2
+git push origin --delete v2.2</div></div>
+            <p>If a release was already made for it, delete the release on GitHub too (Releases › the release › trash icon).</p>
+
+            <h3>Undoing local changes (before pushing)</h3>
+            <div class="table-wrap stack">
+                <table>
+                    <thead><tr><th>To</th><th>Run</th></tr></thead>
+                    <tbody>
+                        <tr><td data-label="To">Throw away your edits to one file</td><td data-label="Run"><code>git restore useas_server/gui.py</code></td></tr>
+                        <tr><td data-label="To">Unstage a file you added by mistake</td><td data-label="Run"><code>git restore --staged useas_server/gui.py</code></td></tr>
+                        <tr><td data-label="To">Undo the last commit but keep its changes</td><td data-label="Run"><code>git reset --soft HEAD~1</code></td></tr>
+                        <tr><td data-label="To">Fix the last commit's message</td><td data-label="Run"><code>git commit --amend -m "Better message"</code></td></tr>
+                    </tbody>
+                </table>
+            </div>
+            <p class="note warning">Once a commit is pushed, don't undo it with reset; make a new commit that fixes it instead.</p>
+        </section>
+
+        <!-- ================= WEBSITE ================= -->
+        <section id="website">
+            <h2>Website and icons</h2>
+            <p>The website is <code>index.html</code> in the repository root, served by GitHub Pages. Its download buttons find the newest release's files by themselves, so a release needs no website edit.</p>
+            <p>Update it only when the text changes (a new feature, a new setup step), then commit and push as usual:</p>
+            <div class="terminal-wrap"><div class="terminal">git add index.html
+git commit -m "Website: explain per-app volume"
+git pull --rebase --autostash
+git push</div></div>
+            <p>The live site updates in a minute or two; press Ctrl+F5 if you still see the old page. Optionally change the <code>v2.1.1</code> file names in it to the new version: they're only used when the page can't reach GitHub.</p>
+
+            <h3>New icon</h3>
+            <p>After changing <code>icon.png</code> (2048 × 2048), rebuild every icon size (Windows <code>.ico</code>, Mac, Linux menus, website) and commit them:</p>
+            <div class="terminal-wrap"><div class="terminal">python packaging/icons/make_icons.py
+git add icon.ico packaging/icons
+git commit -m "New icon"</div></div>
+        </section>
+
+        <!-- ================= CHECKLIST ================= -->
+        <section id="checklist">
+            <h2>Release checklist</h2>
+            <p class="muted">Ticks are remembered in this browser until you reset them.</p>
+            <ul class="checklist">
+                <li><label><input type="checkbox"><span>Change tested on your PC (<code>python UseAsServer.py</code>)</span></label></li>
+                <li><label><input type="checkbox"><span>Committed and pushed: <code>git status</code> shows nothing to commit, <code>git log --oneline -3</code> shows your commit</span></label></li>
+                <li><label><input type="checkbox"><span>Optional: test build with Run workflow, release off</span></label></li>
+                <li><label><input type="checkbox"><span>New version number picked (from 2.1.1: fix = 2.1.2, feature = 2.2, big change = 3.0)</span></label></li>
+                <li><label><input type="checkbox"><span><code>git tag v&lt;version&gt;</code> and <code>git push origin v&lt;version&gt;</code></span></label></li>
+                <li><label><input type="checkbox"><span>Actions run all green (about 20–30 minutes)</span></label></li>
+                <li><label><input type="checkbox"><span>Release shows 8 files and is marked Latest</span></label></li>
+                <li><label><input type="checkbox"><span>Release notes written at the top of the release</span></label></li>
+                <li><label><input type="checkbox"><span>Installed and opened on at least one system</span></label></li>
+                <li><label><input type="checkbox"><span>Website text updated if a feature or setup step changed</span></label></li>
+            </ul>
+            <button class="btn-reset" id="reset-checklist">Reset checklist</button>
+        </section>
+
+    </div>
+
+    <footer>
+        <p><a href="index.html">Use As website</a> • <a href="https://github.com/manjeetdeswal/Use-As-Server" target="_blank" rel="noopener">GitHub</a> • <a href="https://github.com/manjeetdeswal/Use-As-Server/actions" target="_blank" rel="noopener">Actions</a> • <a href="https://github.com/manjeetdeswal/Use-As-Server/releases" target="_blank" rel="noopener">Releases</a></p>
+    </footer>
+
+    <script>
+        // Copy buttons on every command box.
+        document.querySelectorAll(".terminal-wrap").forEach(wrap => {
+            const btn = document.createElement("button");
+            btn.className = "copy-btn";
+            btn.textContent = "Copy";
+            btn.addEventListener("click", () => {
+                const text = wrap.querySelector(".terminal").innerText.trim();
+                navigator.clipboard.writeText(text).then(() => {
+                    btn.textContent = "Copied";
+                    setTimeout(() => (btn.textContent = "Copy"), 1500);
+                }).catch(() => {});
+            });
+            wrap.appendChild(btn);
+        });
+
+        // Checklist ticks are remembered in this browser only.
+        const KEY = "useas-release-checklist";
+        const boxes = Array.from(document.querySelectorAll("ul.checklist input"));
+        function load() {
+            try { return JSON.parse(localStorage.getItem(KEY) || "[]"); } catch (e) { return []; }
+        }
+        function save() {
+            try { localStorage.setItem(KEY, JSON.stringify(boxes.map(b => b.checked))); } catch (e) {}
+        }
+        load().forEach((checked, i) => { if (boxes[i]) boxes[i].checked = !!checked; });
+        boxes.forEach(b => b.addEventListener("change", save));
+        document.getElementById("reset-checklist").addEventListener("click", () => {
+            boxes.forEach(b => (b.checked = false));
+            save();
+        });
+    </script>
+</body>
+</html>
